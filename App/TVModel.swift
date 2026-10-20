@@ -17,6 +17,15 @@ final class TVModel {
     var message: String?
     /// A control call in flight, so the buttons don't double-fire.
     private(set) var busy = false
+    /// TVs with a skip-sponsors change in flight: their toggle waits for the server's answer.
+    private(set) var skipPending: Set<String> = []
+    /// Skip-sponsors changes started or finished per TV, so an answer that left the server
+    /// before one of them landed doesn't put the old value back.
+    @ObservationIgnored private var skipChanges: [String: Int] = [:]
+    #if DEBUG
+    /// Sample TVs, no server: for previews.
+    @ObservationIgnored private var isPreview = false
+    #endif
 
     var selectedId: String = UserDefaults.standard.string(forKey: selectedKey) ?? "" {
         didSet {
@@ -55,9 +64,13 @@ final class TVModel {
     // MARK: Loading
 
     func refresh() async {
+        #if DEBUG
+        if isPreview { return }
+        #endif
+        let changes = skipChanges
         do {
             let list = try await SpeedAPI.devices()
-            devices = list
+            devices = list.map { keepingSkip($0, since: changes) }
             loaded = true
             emailUnverified = false
             if selected == nil { selectedId = list.first?.id ?? "" }
@@ -88,8 +101,9 @@ final class TVModel {
     private func control(_ call: () async throws -> DeviceInfo) async {
         busy = true
         defer { busy = false }
+        let changes = skipChanges
         do {
-            replace(try await call())
+            replace(keepingSkip(try await call(), since: changes))
             message = nil
         } catch {
             handle(error)
@@ -103,6 +117,41 @@ final class TVModel {
             devices.append(device)
         }
         Task { await SpeedActivity.show(device) }
+    }
+
+    /// Turns skipping sponsors on or off for the selected TV: the toggle flips right away, then
+    /// takes the server's answer. An error puts it back and shows the server's `detail`.
+    func setSkipSponsors(_ on: Bool) {
+        guard let i = devices.firstIndex(where: { $0.id == selectedId }),
+              let before = devices[i].skipSponsors, before != on else { return }
+        let id = devices[i].id
+        guard !skipPending.contains(id) else { return }
+        devices[i].skipSponsors = on
+        skipPending.insert(id)
+        skipChanges[id, default: 0] += 1
+        Task {
+            defer {
+                skipPending.remove(id)
+                skipChanges[id, default: 0] += 1
+            }
+            do {
+                replace(try await SpeedAPI.setSkipSponsors(on, device: id))
+                message = nil
+            } catch {
+                if let j = devices.firstIndex(where: { $0.id == id }) { devices[j].skipSponsors = before }
+                handle(error)
+            }
+        }
+    }
+
+    /// The server's answer for a TV, keeping the app's skip-sponsors value if a change to it was
+    /// in flight or landed while this answer was on its way (`changes`: `skipChanges` when it was asked for).
+    private func keepingSkip(_ device: DeviceInfo, since changes: [String: Int]) -> DeviceInfo {
+        guard skipPending.contains(device.id) || skipChanges[device.id] != changes[device.id],
+              let local = devices.first(where: { $0.id == device.id }) else { return device }
+        var device = device
+        device.skipSponsors = local.skipSponsors
+        return device
     }
 
     /// Renames the selected TV (`nil`: back to the TV's own name). The list and the Live Activity
@@ -180,6 +229,21 @@ final class TVModel {
         message = error.localizedDescription
     }
 
+    #if DEBUG
+    /// Sample TVs for previews and the `-MainViewPreview` launch argument. Never calls the server
+    /// to load; a toggle still tries, and its error reverts it.
+    static func preview(_ devices: [DeviceInfo] = DeviceInfo.samples) -> TVModel {
+        let model = TVModel()
+        model.isPreview = true
+        model.devices = devices
+        model.loaded = true
+        model.following = true
+        model.selectedId = devices.first?.id ?? ""
+        model.following = false
+        return model
+    }
+    #endif
+
     func reset() {
         devices = []
         loaded = false
@@ -187,3 +251,14 @@ final class TVModel {
         message = nil
     }
 }
+
+#if DEBUG
+extension DeviceInfo {
+    static let samples: [DeviceInfo] = [
+        DeviceInfo(id: "preview-1", name: "Living Room TV", connected: true, videoId: "dQw4w9WgXcQ",
+                   speed: 1.5, captions: true, skipSponsors: true),
+        DeviceInfo(id: "preview-2", name: "Bedroom TV", connected: false, videoId: nil,
+                   speed: 1, captions: false),
+    ]
+}
+#endif

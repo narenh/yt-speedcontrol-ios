@@ -37,6 +37,8 @@ Until that's served, iOS refuses to use `canopysf.com` passkeys in this app, so 
 3. Pick a TV from the switcher under the title. The speed buttons set the speed (captions on above 1×, off at 1×); the captions button toggles captions.
 4. **The Live Activity** puts the same controls on the Lock Screen and in the Dynamic Island. It starts by itself when one of your TVs starts playing, even with the app closed, on every iPhone you're signed in on; the TV that started playing last gets it. **Start Live Activity** (and **End Live Activity**) in the ⋯ menu starts it for the selected TV. Switching TVs in the app switches the Live Activity too, and changes made from the TV remote show up on it.
 
+**Skip sponsors** (below the captions button) turns sponsor and ad skipping on or off for the selected TV (`PATCH /devices/{id}` with `skip_sponsors`). The server does the skipping with SponsorBlock, using the server owner's categories. The toggle only shows when the server sends `skip_sponsors` for that TV; it's absent for people who may not use it and when the server has it off. It flips right away, and an error puts it back and shows the server's `detail`. The 5 s refresh leaves it alone while a change is in flight. It isn't on the Live Activity.
+
 The ⋯ menu also has **Rename TV…** (Save, or **Use TV's name** to go back to the name the TV reports; `PATCH /devices/{id}`), **Remove this TV** and **Sign out**.
 
 ## How it works

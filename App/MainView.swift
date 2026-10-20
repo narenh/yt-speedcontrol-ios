@@ -4,11 +4,20 @@ import SwiftUI
 struct MainView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model = TVModel()
+    @State private var model: TVModel
     @State private var pairing = false
     @State private var confirmRemove = false
     @State private var renaming = false
     @State private var newName = ""
+
+    init() {
+        _model = State(initialValue: TVModel())
+    }
+
+    /// For previews: a model with sample TVs.
+    init(model: TVModel) {
+        _model = State(initialValue: model)
+    }
 
     var body: some View {
         NavigationStack {
@@ -181,9 +190,30 @@ struct MainView: View {
                     .foregroundStyle(device.captions ? Color(.systemBackground) : .primary)
             }
             .buttonStyle(.plain)
+
+            // Absent: this person may not use it, or the server has it off. No toggle at all then.
+            if let skip = device.skipSponsors {
+                skipSponsorsToggle(skip, device: device)
+            }
         }
         .disabled(model.busy)
         .padding(.top, 24)
+    }
+
+    private func skipSponsorsToggle(_ on: Bool, device: DeviceInfo) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Skip sponsors", isOn: Binding(get: { on }, set: { model.setSkipSponsors($0) }))
+                .font(.headline)
+                .tint(.red)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .disabled(model.skipPending.contains(device.id))
+            Text("Skips sponsor segments and ads with SponsorBlock.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+        }
     }
 
     private var emptyState: some View {
@@ -216,3 +246,10 @@ private struct UnverifiedBanner: View {
         .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
+
+#if DEBUG
+#Preview("Skip sponsors") {
+    MainView(model: .preview())
+        .environment(AppSession())
+}
+#endif

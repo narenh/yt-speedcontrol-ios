@@ -8,10 +8,14 @@ struct DeviceInfo: Codable, Identifiable, Hashable {
     let videoId: String?
     let speed: Double
     let captions: Bool
+    /// Whether the server skips sponsor segments and ads on this TV. `nil` (absent) when this
+    /// person may not use it or the server has it off, or from an older server: no toggle then.
+    var skipSponsors: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id, name, connected, speed, captions
         case videoId = "video_id"
+        case skipSponsors = "skip_sponsors"
     }
 }
 
@@ -62,7 +66,17 @@ enum SpeedAPI {
     /// `PATCH /devices/{id}`: a new name (the server trims it; 1–40 characters), or `nil` for the
     /// name the TV reports itself.
     static func rename(device: String, name: String?) async throws -> DeviceInfo {
-        let body = try JSONSerialization.data(withJSONObject: ["name": name.map { $0 as Any } ?? NSNull()])
+        try await patch(device: device, ["name": name.map { $0 as Any } ?? NSNull()])
+    }
+
+    /// `PATCH /devices/{id}` with `skip_sponsors`. A `403 skip_not_allowed` says why in `detail`.
+    static func setSkipSponsors(_ on: Bool, device: String) async throws -> DeviceInfo {
+        try await patch(device: device, ["skip_sponsors": on])
+    }
+
+    /// `PATCH /devices/{id}`: only the fields in `fields` change. Returns the updated TV.
+    private static func patch(device: String, _ fields: [String: Any]) async throws -> DeviceInfo {
+        let body = try JSONSerialization.data(withJSONObject: fields)
         return try JSONDecoder().decode(DeviceInfo.self, from: try await send("devices/\(device)", method: "PATCH", body: body))
     }
 
