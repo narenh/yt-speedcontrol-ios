@@ -1,0 +1,46 @@
+# Generate SpeedControl.xcodeproj with: xcodegen generate
+name: SpeedControl
+options:
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""   # set your team ID (or pick it in Xcode's Signing tab)
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  SpeedControl:
+    type: application
+    platform: iOS
+    sources: [App, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.narenh.speedcontrol
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Speed
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: true
+        NSLocalNetworkUsageDescription: Speed talks to your yt-speedcontrol server on the local network.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true   # personal app; the server is plain http on the LAN
+    dependencies:
+      - target: SpeedControlWidget
+  SpeedControlWidget:
+    type: app-extension
+    platform: iOS
+    sources: [Widget, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.narenh.speedcontrol.widget
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Speed
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
