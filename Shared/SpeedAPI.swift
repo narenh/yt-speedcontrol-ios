@@ -39,7 +39,7 @@ struct SpeedAPIError: LocalizedError {
 /// Live Activity intents run in the app's process, so they use this too.
 enum SpeedAPI {
     static let speeds: [Double] = [1, 1.25, 1.5, 1.75, 2]
-    static let baseURL = URL(string: "https://ytspeed.canopysf.com")!
+    static let baseURL = URL(string: "https://control.canopysf.com")!
 
     /// No cookies: the token is the only credential.
     private static let session: URLSession = {
