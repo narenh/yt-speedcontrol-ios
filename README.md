@@ -14,7 +14,7 @@ Set your team in Signing for both targets (or fill `DEVELOPMENT_TEAM` in `projec
 
 ## Use
 
-1. Enter the server address (e.g. `http://homelab.local:8000`) and allow local network access.
+1. The app talks to `https://ytspeed.canopysf.com` (the Coolify deployment) unless you enter another server address. Bare hostnames get `https://`.
 2. Pick a TV (pair TVs in the web UI) and tap **Start Live Activity**.
 3. Speed buttons set the speed (captions on above 1×, off at 1× — same rule as the web UI); the captions pill toggles captions.
 

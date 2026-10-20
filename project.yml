@@ -6,7 +6,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    DEVELOPMENT_TEAM: ""   # set your team ID (or pick it in Xcode's Signing tab)
+    DEVELOPMENT_TEAM: UC3Y84QJ83
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -25,9 +25,6 @@ targets:
         CFBundleDisplayName: Speed
         UILaunchScreen: {}
         NSSupportsLiveActivities: true
-        NSLocalNetworkUsageDescription: Speed talks to your yt-speedcontrol server on the local network.
-        NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true   # personal app; the server is plain http on the LAN
     dependencies:
       - target: SpeedControlWidget
   SpeedControlWidget:

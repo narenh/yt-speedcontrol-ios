@@ -30,7 +30,7 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("Server") {
-                    TextField("http://homelab.local:8000", text: $server)
+                    TextField(SpeedAPI.defaultServer, text: $server)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

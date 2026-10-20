@@ -27,11 +27,13 @@ struct SpeedAPIError: LocalizedError {
 enum SpeedAPI {
     static let speeds: [Double] = [1, 1.25, 1.5, 1.75, 2]
     static let serverKey = "serverURL"
+    static let defaultServer = "https://ytspeed.canopysf.com"
 
     static var baseURL: URL? {
-        guard let raw = UserDefaults.standard.string(forKey: serverKey)?
-            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-        return URL(string: raw.hasPrefix("http") ? raw : "http://\(raw)")
+        let saved = UserDefaults.standard.string(forKey: serverKey)?.trimmingCharacters(in: .whitespaces)
+        let raw = saved?.isEmpty == false ? saved! : defaultServer
+        // https by default: the server redirects http, and URLSession turns a redirected POST into a GET.
+        return URL(string: raw.hasPrefix("http") ? raw : "https://\(raw)")
     }
 
     static func devices() async throws -> [DeviceInfo] {
