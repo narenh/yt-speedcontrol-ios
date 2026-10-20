@@ -37,6 +37,7 @@ struct MainView: View {
             // TV remote show up (and how the running Live Activity catches up).
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
+                ActivityPush.shared.resync()
                 while !Task.isCancelled {
                     await model.refresh()
                     try? await Task.sleep(for: .seconds(5))

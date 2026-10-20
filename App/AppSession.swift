@@ -25,6 +25,7 @@ final class AppSession {
         isSignedIn = false
         person = nil
         emailCeremony = nil
+        ActivityPush.shared.didSignOut()
         Task { await SpeedActivity.end() }
     }
 
@@ -33,6 +34,7 @@ final class AppSession {
         emailCeremony = nil
         person = answer.person
         isSignedIn = true
+        ActivityPush.shared.didSignIn()
         if answer.tookOver == true {
             notice = "This Canopy Account is yours now. Its phone, Instagram, Venmo, Cash App and photo were cleared. Check that the name is yours at account.canopysf.com."
         }
@@ -90,8 +92,10 @@ final class AppSession {
 
     // MARK: Signing out
 
-    /// `POST /signout`, then delete the token whatever the answer (even with no network).
+    /// `DELETE /installs/{id}` and end the Live Activity, then `POST /signout`, then delete the
+    /// token whatever the answers (even with no network).
     func signOut() async {
+        await ActivityPush.shared.signOut()
         if let token = TokenStore.token { try? await CanopyAccount.signOut(token: token) }
         TokenStore.delete()
         forget()

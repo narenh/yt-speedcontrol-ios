@@ -6,7 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class TVModel {
-    private static let selectedKey = "selectedDevice"
+    static let selectedKey = "selectedDevice"
 
     private(set) var devices: [DeviceInfo] = []
     private(set) var loaded = false
@@ -21,11 +21,33 @@ final class TVModel {
     var selectedId: String = UserDefaults.standard.string(forKey: selectedKey) ?? "" {
         didSet {
             UserDefaults.standard.set(selectedId, forKey: Self.selectedKey)
-            if selectedId != oldValue, let device = selected {
+            if selectedId != oldValue, !following, let device = selected {
                 // The activity follows the selected TV, updated in place.
-                Task { await SpeedActivity.show(device, switching: true) }
+                Task {
+                    await SpeedActivity.show(device, switching: true)
+                    ActivityPush.shared.activityTVChanged()
+                }
             }
         }
+    }
+
+    /// Selecting the TV of a newly adopted activity, which already shows it.
+    @ObservationIgnored private var following = false
+    @ObservationIgnored private var observer: NSObjectProtocol?
+
+    init() {
+        observer = NotificationCenter.default.addObserver(forName: .liveActivityTVChanged, object: nil, queue: .main) { [weak self] note in
+            guard let deviceId = note.object as? String else { return }
+            MainActor.assumeIsolated { self?.follow(deviceId) }
+        }
+    }
+
+    /// A new activity (usually started by the server's push) is for this TV: select it.
+    private func follow(_ deviceId: String) {
+        following = true
+        selectedId = deviceId
+        following = false
+        activityRunning = SpeedActivity.isRunning
     }
 
     var selected: DeviceInfo? { devices.first { $0.id == selectedId } }
@@ -41,6 +63,7 @@ final class TVModel {
             if selected == nil { selectedId = list.first?.id ?? "" }
             if let device = selected {
                 await SpeedActivity.show(device, switching: true)
+                ActivityPush.shared.activityTVChanged()
             } else if SpeedActivity.isRunning {
                 await SpeedActivity.end()
             }
@@ -119,7 +142,10 @@ final class TVModel {
             return
         }
         do {
-            try await SpeedActivity.start(device)
+            // Same registration path as a push-started activity.
+            let activity = try await SpeedActivity.start(device)
+            ActivityPush.shared.adopt(activity, select: false)
+            ActivityPush.shared.activityTVChanged()
             message = nil
         } catch {
             message = error.localizedDescription

@@ -19,7 +19,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.canopysf.CanopyControl
         TARGETED_DEVICE_FAMILY: "1"
-        # Passkeys for canopysf.com. Not ?mode=developer: iOS ignores that entry unless
+        # Push Notifications (aps-environment, for Live Activity push) and passkeys for canopysf.com. Not ?mode=developer: iOS ignores that entry unless
         # Settings > Developer > Associated Domains Development is on, and Apple's CDN has the file.
         CODE_SIGN_ENTITLEMENTS: App/CanopyControl.entitlements
     info:
@@ -28,6 +28,8 @@ targets:
         CFBundleDisplayName: Canopy Control
         UILaunchScreen: {}
         NSSupportsLiveActivities: true
+        # The server pushes every speed/captions change from the TV remote.
+        NSSupportsLiveActivitiesFrequentUpdates: true
         NSCameraUsageDescription: Canopy Control uses the camera to read the TV's Link with TV code.
     dependencies:
       - target: CanopyControlWidget

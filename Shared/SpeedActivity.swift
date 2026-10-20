@@ -4,6 +4,8 @@ import Foundation
 
 /// There's at most one activity, and it shows the TV selected in the app. The TV lives in the
 /// state rather than the attributes, so switching TVs updates the activity in place.
+/// The server sends this same shape in its pushes (attributes `{}`, content-state keys
+/// `deviceId, deviceName, speed, captions, connected`, no `error`): don't rename anything.
 struct SpeedAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var deviceId: String
@@ -69,9 +71,16 @@ struct SetCaptionsIntent: LiveActivityIntent {
 // MARK: - Activity management
 
 enum SpeedActivity {
+    /// UserDefaults key for the id of the activity the app adopted last (the app's ActivityPush
+    /// keeps it). If a push started a second one that the app hasn't caught up with yet, this
+    /// still picks the one the app knows about.
+    static let currentKey = "currentActivity"
+
     /// The one running activity, if any.
     static var current: Activity<SpeedAttributes>? {
-        Activity<SpeedAttributes>.activities.first { $0.activityState == .active || $0.activityState == .stale }
+        let running = Activity<SpeedAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }
+        let adopted = UserDefaults.standard.string(forKey: currentKey)
+        return running.first { $0.id == adopted } ?? running.first
     }
 
     static var isRunning: Bool { current != nil }
@@ -96,15 +105,18 @@ enum SpeedActivity {
         }
     }
 
-    /// Starts the activity for this TV, or points the running one at it.
-    static func start(_ device: DeviceInfo) async throws {
-        if current != nil {
+    /// Starts the activity for this TV, or points the running one at it. Push updates are on
+    /// (`.token`): the app sends the activity's push token to the server.
+    @discardableResult
+    static func start(_ device: DeviceInfo) async throws -> Activity<SpeedAttributes> {
+        if let activity = current {
             await show(device, switching: true)
-            return
+            return activity
         }
-        _ = try Activity.request(
+        return try Activity.request(
             attributes: SpeedAttributes(),
-            content: ActivityContent(state: .init(device), staleDate: nil)
+            content: ActivityContent(state: .init(device), staleDate: nil),
+            pushType: .token
         )
     }
 

@@ -67,12 +67,30 @@ enum SpeedAPI {
         try await request("devices/\(device)/captions/\(on ? "on" : "off")", method: "POST")
     }
 
+    // MARK: Installs (Live Activity push registration)
+
+    /// `PUT /installs/{id}`: `json` is the body, built by the caller so absent and null differ.
+    static func putInstall(_ id: String, json: Data) async throws {
+        _ = try await send("installs/\(id)", method: "PUT", body: json)
+    }
+
+    /// `DELETE /installs/{id}`: this phone stops getting pushes for the signed-in person.
+    static func deleteInstall(_ id: String) async throws {
+        _ = try await send("installs/\(id)", method: "DELETE", body: nil)
+    }
+
     private struct ErrorBody: Decodable {
         let detail: String?
         let reason: String?
     }
 
     private static func request<T: Decodable>(_ path: String, method: String, body: [String: String]? = nil) async throws -> T {
+        let data = try await send(path, method: method, body: try body.map { try JSONEncoder().encode($0) })
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// One authorized request; returns the body of a 2xx answer, throws `SpeedAPIError` otherwise.
+    private static func send(_ path: String, method: String, body: Data?) async throws -> Data {
         guard let token = TokenStore.token else { throw SpeedAPIError.noToken }
         var req = URLRequest(url: baseURL.appending(path: path))
         req.httpMethod = method
@@ -81,7 +99,7 @@ enum SpeedAPI {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONEncoder().encode(body)
+            req.httpBody = body
         }
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else {
@@ -94,7 +112,7 @@ enum SpeedAPI {
             if error.isSignedOut { TokenStore.delete() }
             throw error
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        return data
     }
 }
 
