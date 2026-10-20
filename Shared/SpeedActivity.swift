@@ -2,21 +2,23 @@ import ActivityKit
 import AppIntents
 import Foundation
 
+/// There's at most one activity, and it shows the TV selected in the app. The TV lives in the
+/// state rather than the attributes, so switching TVs updates the activity in place.
 struct SpeedAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
+        var deviceId: String
+        var deviceName: String
         var speed: Double
         var captions: Bool
         var connected: Bool
         var error: String?
     }
-
-    var deviceId: String
-    var deviceName: String
 }
 
 extension SpeedAttributes.ContentState {
     init(_ info: DeviceInfo) {
-        self.init(speed: info.speed, captions: info.captions, connected: info.connected, error: nil)
+        self.init(deviceId: info.id, deviceName: info.name, speed: info.speed,
+                  captions: info.captions, connected: info.connected, error: nil)
     }
 }
 
@@ -67,42 +69,58 @@ struct SetCaptionsIntent: LiveActivityIntent {
 // MARK: - Activity management
 
 enum SpeedActivity {
-    static func current(for deviceId: String) -> Activity<SpeedAttributes>? {
-        Activity<SpeedAttributes>.activities.first { $0.attributes.deviceId == deviceId }
+    /// The one running activity, if any.
+    static var current: Activity<SpeedAttributes>? {
+        Activity<SpeedAttributes>.activities.first { $0.activityState == .active || $0.activityState == .stale }
     }
 
-    static var running: [Activity<SpeedAttributes>] { Activity<SpeedAttributes>.activities }
+    static var isRunning: Bool { current != nil }
 
-    /// Runs a server call and pushes the result (or its error) into the device's Live Activity.
+    /// Runs a server call for a tap on the activity and shows the result (or its error) on it.
+    /// A signed-out answer ends the activity: its buttons can't work until the app signs in again.
     static func apply(deviceId: String, _ call: () async throws -> DeviceInfo) async {
-        guard let activity = current(for: deviceId) else { return }
-        var state = activity.content.state
         do {
-            state = .init(try await call())
+            let info = try await call()
+            await show(info)
         } catch {
+            guard let activity = current, activity.content.state.deviceId == deviceId else { return }
+            var state = activity.content.state
             state.error = error.localizedDescription
+            if let api = error as? SpeedAPIError, api.isSignedOut {
+                TokenStore.delete()
+                state.error = "Signed out. Open Canopy Control to sign in."
+                await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .default)
+            } else {
+                await activity.update(ActivityContent(state: state, staleDate: nil))
+            }
         }
-        await activity.update(ActivityContent(state: state, staleDate: nil))
     }
 
-    static func start(_ device: DeviceInfo) throws {
-        guard current(for: device.id) == nil else { return }
+    /// Starts the activity for this TV, or points the running one at it.
+    static func start(_ device: DeviceInfo) async throws {
+        if current != nil {
+            await show(device, switching: true)
+            return
+        }
         _ = try Activity.request(
-            attributes: SpeedAttributes(deviceId: device.id, deviceName: device.name),
+            attributes: SpeedAttributes(),
             content: ActivityContent(state: .init(device), staleDate: nil)
         )
     }
 
-    static func end(_ deviceId: String) async {
-        await current(for: deviceId)?.end(nil, dismissalPolicy: .immediate)
+    /// Updates the running activity with this TV's state. Unless `switching`, only when the
+    /// activity is already showing this TV, and only when something changed.
+    static func show(_ device: DeviceInfo, switching: Bool = false) async {
+        guard let activity = current else { return }
+        guard switching || activity.content.state.deviceId == device.id else { return }
+        let state = SpeedAttributes.ContentState(device)
+        guard state != activity.content.state else { return }
+        await activity.update(ActivityContent(state: state, staleDate: nil))
     }
 
-    /// Pull fresh state for every running activity (called when the app comes to the foreground).
-    static func syncAll() async {
-        guard !running.isEmpty, let devices = try? await SpeedAPI.devices() else { return }
-        for activity in running {
-            guard let info = devices.first(where: { $0.id == activity.attributes.deviceId }) else { continue }
-            await activity.update(ActivityContent(state: .init(info), staleDate: nil))
+    static func end() async {
+        for activity in Activity<SpeedAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
 }

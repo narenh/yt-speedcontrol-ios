@@ -18,7 +18,7 @@ struct SpeedLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label(context.attributes.deviceName, systemImage: "tv")
+                    Label(context.state.deviceName, systemImage: "tv")
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                 }
@@ -54,7 +54,7 @@ private struct LockScreenView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "play.tv.fill").foregroundStyle(.red)
-                Text(context.attributes.deviceName).font(.subheadline.weight(.semibold))
+                Text(context.state.deviceName).font(.subheadline.weight(.semibold))
                 Spacer()
                 Circle()
                     .fill(context.state.connected ? .green : .gray)
@@ -99,7 +99,7 @@ private struct SpeedButtons: View {
         HStack(spacing: 6) {
             ForEach(SpeedAPI.speeds, id: \.self) { speed in
                 let selected = speed == context.state.speed
-                Button(intent: SetSpeedIntent(speed: speed, deviceId: context.attributes.deviceId)) {
+                Button(intent: SetSpeedIntent(speed: speed, deviceId: context.state.deviceId)) {
                     Text(speed.speedLabel)
                         .font(.subheadline.weight(.semibold))
                         .monospacedDigit()
@@ -119,7 +119,7 @@ private struct CaptionsButton: View {
 
     var body: some View {
         let on = context.state.captions
-        Button(intent: SetCaptionsIntent(on: !on, deviceId: context.attributes.deviceId)) {
+        Button(intent: SetCaptionsIntent(on: !on, deviceId: context.state.deviceId)) {
             Label("Captions", systemImage: on ? "captions.bubble.fill" : "captions.bubble")
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 10)
