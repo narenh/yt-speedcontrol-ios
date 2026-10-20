@@ -4,6 +4,8 @@ import SwiftUI
 struct SpeedCard: View {
     let speed: Double
     let select: (Double) -> Void
+    /// Short screens (iPhone SE): tighter padding and a smaller readout; same segments.
+    var compact = false
 
     @ScaledMetric(relativeTo: .largeTitle) private var readoutSize: CGFloat = 44
     @ScaledMetric(relativeTo: .title) private var timesSize: CGFloat = 26
@@ -11,7 +13,7 @@ struct SpeedCard: View {
     @Namespace private var selection
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: compact ? 10 : 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Speed")
                     .font(.subheadline.weight(.semibold))
@@ -21,19 +23,20 @@ struct SpeedCard: View {
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(speed.speedLabel)
-                        .font(.system(size: readoutSize, weight: .bold))
+                        .font(.system(size: readoutSize * (compact ? 0.82 : 1), weight: .bold))
                         .tracking(-1)
                         .monospacedDigit()
                         .contentTransition(.numericText(value: speed))
                     Text("×")
-                        .font(.system(size: timesSize, weight: .regular))
+                        .font(.system(size: timesSize * (compact ? 0.82 : 1), weight: .regular))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityHidden(true)
             }
             segments
         }
-        .padding(EdgeInsets(top: 18, leading: 16, bottom: 16, trailing: 16))
+        .padding(compact ? EdgeInsets(top: 12, leading: 14, bottom: 14, trailing: 14)
+                         : EdgeInsets(top: 18, leading: 16, bottom: 16, trailing: 16))
         .card()
         .animation(.snappy, value: speed)
         .sensoryFeedback(.selection, trigger: speed)

@@ -4,12 +4,14 @@ import SwiftUI
 struct CaptionsButton: View {
     let on: Bool
     let toggle: () -> Void
+    /// Short screens (iPhone SE): a little less height and padding.
+    var compact = false
 
     @ScaledMetric(relativeTo: .headline) private var minHeight: CGFloat = 64
 
     var body: some View {
         Button(action: toggle) {
-            HStack(spacing: 14) {
+            HStack(spacing: compact ? 12 : 14) {
                 Image(systemName: on ? "captions.bubble.fill" : "captions.bubble")
                     .font(.title2)
                     .symbolRenderingMode(.monochrome)
@@ -26,11 +28,10 @@ struct CaptionsButton: View {
                     .contentTransition(.opacity)
             }
             .foregroundStyle(on ? Color.captionsOnText : Color.primary)
-            .padding(.horizontal, 20)
-            .frame(minHeight: minHeight)
-            .background(on ? Color.captionsOnFill : Color.card,
-                        in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.horizontal, compact ? 18 : 20)
+            .frame(minHeight: minHeight * (compact ? 52 / 64 : 1))
+            .background(on ? Color.captionsOnFill : Color.card, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .animation(.snappy, value: on)
@@ -38,6 +39,10 @@ struct CaptionsButton: View {
         .accessibilityLabel("Captions")
         .accessibilityValue(on ? "On" : "Off")
         .accessibilityAddTraits(.isToggle)
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: compact ? 18 : 20, style: .continuous)
     }
 }
 

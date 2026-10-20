@@ -11,6 +11,9 @@ struct MainView: View {
     @State private var pairing = false
     /// Pair a TV was tapped in the switcher: open pairing once the sheet is gone.
     @State private var pairAfterSwitcher = false
+    /// Short screens (iPhone SE): tighter controls and spacing.
+    @State private var compact = false
+    @State private var bottomInset: CGFloat = 0
 
     init() {
         _model = State(initialValue: TVModel())
@@ -22,19 +25,21 @@ struct MainView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                if model.emailUnverified { UnverifiedBanner() }
-                if let message = model.message {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        // No scrolling: the header on top, what's playing in all the space left, and the controls
+        // pinned to the bottom.
+        VStack(alignment: .leading, spacing: compact ? 12 : 16) {
+            header
+            if model.emailUnverified { UnverifiedBanner() }
+            if let message = model.message {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Group {
                 if let device = model.selected {
                     if device.status == .playing {
-                        controls(device)
+                        playing(device)
                     } else {
                         idle(device)
                     }
@@ -42,17 +47,24 @@ struct MainView: View {
                     noTVs
                 } else {
                     ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 80)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
-            .animation(.snappy, value: model.selected?.status)
+            .frame(maxHeight: .infinity)
         }
-        .background(Color.groupedBackground)
-        .refreshable { await model.refresh() }
+        .padding(.horizontal, 16)
+        .padding(.top, compact ? 4 : 8)
+        // Above the home indicator; on phones without one, clear of the screen's edge.
+        .padding(.bottom, bottomInset > 0 ? 4 : 16)
+        .animation(.snappy, value: model.selected?.status)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onGeometryChange(for: Bool.self) { $0.size.height < 700 } action: { compact = $0 }
+        .background {
+            // Fills the screen, so it sees the home indicator's inset.
+            Color.groupedBackground
+                .ignoresSafeArea()
+                .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
+        }
         // On appear, on foreground, and every ~5 s while active: how changes made from the
         // TV remote show up (and how the running Live Activity catches up).
         .task(id: scenePhase) {
@@ -137,19 +149,19 @@ struct MainView: View {
 
     // MARK: Playing
 
-    private func controls(_ device: DeviceInfo) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private func playing(_ device: DeviceInfo) -> some View {
+        VStack(spacing: compact ? 12 : 16) {
             NowPlayingCard(device: device)
-            SpeedCard(speed: device.speed) { model.setSpeed($0) }
-            CaptionsButton(on: device.captions) { model.setCaptions(!device.captions) }
-            if model.autoCaptions {
-                Text("Turned on by speeding up. Change that in Settings.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
+            VStack(spacing: compact ? 10 : 12) {
+                SpeedCard(speed: device.speed, select: { model.setSpeed($0) }, compact: compact)
+                CaptionsButton(on: device.captions, toggle: { model.setCaptions(!device.captions) },
+                               compact: compact)
             }
+            // Always full size: the now-playing area above gives way instead.
+            .fixedSize(horizontal: false, vertical: true)
+            .layoutPriority(1)
+            .disabled(model.controlPending.contains(device.id))
         }
-        .disabled(model.controlPending.contains(device.id))
         .transition(.opacity)
     }
 
@@ -161,7 +173,7 @@ struct MainView: View {
         } description: {
             Text("Open YouTube on \(device.name) and start a video. Speed controls show up here.")
         }
-        .padding(.top, 60)
+        .frame(maxHeight: .infinity)
         .transition(.opacity)
     }
 
@@ -175,7 +187,7 @@ struct MainView: View {
                 .buttonStyle(.glassProminent)
                 .tint(.canopyAccent)
         }
-        .padding(.top, 60)
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: Sheets
