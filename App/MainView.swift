@@ -7,11 +7,14 @@ struct MainView: View {
     @State private var model = TVModel()
     @State private var pairing = false
     @State private var confirmRemove = false
+    @State private var renaming = false
+    @State private var newName = ""
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    if !model.devices.isEmpty { tvSwitcher }
                     if model.emailUnverified { UnverifiedBanner() }
                     if let device = model.selected {
                         controls(device)
@@ -30,7 +33,7 @@ struct MainView: View {
                 .padding()
             }
             .navigationTitle("Canopy Control")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar { toolbar }
             .refreshable { await model.refresh() }
             // On appear, on foreground, and every ~5 s while active: how changes made from the
@@ -49,6 +52,15 @@ struct MainView: View {
             } message: {
                 Text("You can pair it again later with a new code from the TV.")
             }
+            .alert("Rename TV", isPresented: $renaming) {
+                TextField("Name", text: $newName)
+                    .textInputAutocapitalization(.words)
+                Button("Save") { Task { await model.renameSelected(to: newName) } }
+                Button("Use TV's name") { Task { await model.renameSelected(to: nil) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Up to 40 characters.")
+            }
             .alert("Welcome", isPresented: Binding(get: { session.notice != nil }, set: { if !$0 { session.notice = nil } })) {
                 Button("OK") { session.notice = nil }
             } message: { Text(session.notice ?? "") }
@@ -58,36 +70,51 @@ struct MainView: View {
 
     // MARK: Pieces
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            if model.devices.count > 0 {
-                Menu {
-                    Picker("TV", selection: $model.selectedId) {
-                        ForEach(model.devices) { device in
-                            Label(device.name, systemImage: device.connected ? "circle.fill" : "circle")
-                                .tag(device.id)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(model.selected?.connected == true ? .green : .gray)
-                            .frame(width: 8, height: 8)
-                        Text(model.selected?.name ?? "TV").lineLimit(1)
-                        Image(systemName: "chevron.down").font(.caption2.weight(.bold))
-                    }
+    /// Below the title, centered: the selected TV, opening the list of TVs.
+    private var tvSwitcher: some View {
+        Menu {
+            Picker("TV", selection: $model.selectedId) {
+                ForEach(model.devices) { device in
+                    Label(device.name, systemImage: device.connected ? "circle.fill" : "circle")
+                        .tag(device.id)
                 }
-                .accessibilityLabel("TV: \(model.selected?.name ?? "none")")
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(model.selected?.connected == true ? .green : .gray)
+                    .frame(width: 8, height: 8)
+                Text(model.selected?.name ?? "TV").font(.headline).lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption.weight(.bold))
             }
         }
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("TV: \(model.selected?.name ?? "none")")
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 if let person = session.person {
                     Text("Signed in as \(person.displayName)")
                 }
                 Button("Pair a TV", systemImage: "plus") { pairing = true }
-                if model.selected != nil {
+                // Same path (and push-token registration) as before, from the menu now.
+                if model.activityRunning {
+                    Button("End Live Activity", systemImage: "platter.filled.bottom.iphone") {
+                        Task { await model.endActivity() }
+                    }
+                } else if model.selected != nil {
+                    Button("Start Live Activity", systemImage: "platter.filled.bottom.iphone") {
+                        Task { await model.startActivity() }
+                    }
+                }
+                if let device = model.selected {
+                    Button("Rename TV…", systemImage: "pencil") {
+                        newName = device.name
+                        renaming = true
+                    }
                     Button("Remove this TV", systemImage: "trash", role: .destructive) { confirmRemove = true }
                 }
                 Divider()
@@ -154,18 +181,6 @@ struct MainView: View {
                     .foregroundStyle(device.captions ? Color(.systemBackground) : .primary)
             }
             .buttonStyle(.plain)
-
-            if model.activityRunning {
-                Button("End Live Activity", role: .destructive) { Task { await model.endActivity() } }
-                    .buttonStyle(.glass)
-                    .controlSize(.large)
-            } else {
-                Button("Start Live Activity", systemImage: "platter.filled.bottom.iphone") {
-                    Task { await model.startActivity() }
-                }
-                .buttonStyle(.glassProminent)
-                .controlSize(.large)
-            }
         }
         .disabled(model.busy)
         .padding(.top, 24)

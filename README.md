@@ -34,10 +34,10 @@ Until that's served, iOS refuses to use `canopysf.com` passkeys in this app, so 
 
 1. **Sign in** with your Canopy Account: **Sign in with passkey**, or **Email me a code** (then save a passkey on this phone). The app doesn't create accounts: an email with no Canopy Account is sent to [account.canopysf.com](https://account.canopysf.com) to make one first.
 2. **Pair a TV** from the ⋯ menu: on the TV, YouTube → Settings → Link with TV code, then type the code or tap **Scan code** to read it with the camera. Each person has their own TVs (up to 10).
-3. Pick a TV from the switcher at the top left. The speed buttons set the speed (captions on above 1×, off at 1×); the captions button toggles captions.
-4. **The Live Activity** puts the same controls on the Lock Screen and in the Dynamic Island. It starts by itself when one of your TVs starts playing, even with the app closed, on every iPhone you're signed in on; the TV that started playing last gets it. **Start Live Activity** starts it for the selected TV. Switching TVs in the app switches the Live Activity too, and changes made from the TV remote show up on it.
+3. Pick a TV from the switcher under the title. The speed buttons set the speed (captions on above 1×, off at 1×); the captions button toggles captions.
+4. **The Live Activity** puts the same controls on the Lock Screen and in the Dynamic Island. It starts by itself when one of your TVs starts playing, even with the app closed, on every iPhone you're signed in on; the TV that started playing last gets it. **Start Live Activity** (and **End Live Activity**) in the ⋯ menu starts it for the selected TV. Switching TVs in the app switches the Live Activity too, and changes made from the TV remote show up on it.
 
-The ⋯ menu also has **Remove this TV** and **Sign out**.
+The ⋯ menu also has **Rename TV…** (Save, or **Use TV's name** to go back to the name the TV reports; `PATCH /devices/{id}`), **Remove this TV** and **Sign out**.
 
 ## How it works
 

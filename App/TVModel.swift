@@ -105,6 +105,13 @@ final class TVModel {
         Task { await SpeedActivity.show(device) }
     }
 
+    /// Renames the selected TV (`nil`: back to the TV's own name). The list and the Live Activity
+    /// take the answer right away; the server's push says the same a moment later.
+    func renameSelected(to name: String?) async {
+        guard let id = selected?.id else { return }
+        await control { try await SpeedAPI.rename(device: id, name: name) }
+    }
+
     // MARK: Pairing and removing
 
     /// Throws the server's `detail` so the pair sheet can show it.

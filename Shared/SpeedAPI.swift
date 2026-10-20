@@ -59,6 +59,13 @@ enum SpeedAPI {
         let _: Removed = try await request("devices/\(device)", method: "DELETE")
     }
 
+    /// `PATCH /devices/{id}`: a new name (the server trims it; 1–40 characters), or `nil` for the
+    /// name the TV reports itself.
+    static func rename(device: String, name: String?) async throws -> DeviceInfo {
+        let body = try JSONSerialization.data(withJSONObject: ["name": name.map { $0 as Any } ?? NSNull()])
+        return try JSONDecoder().decode(DeviceInfo.self, from: try await send("devices/\(device)", method: "PATCH", body: body))
+    }
+
     static func setSpeed(_ speed: Double, device: String) async throws -> DeviceInfo {
         try await request("devices/\(device)/speed/\(speed.pathValue)", method: "POST")
     }
