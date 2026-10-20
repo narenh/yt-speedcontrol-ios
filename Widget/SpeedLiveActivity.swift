@@ -17,19 +17,25 @@ struct SpeedLiveActivity: Widget {
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
+                // The expanded island's corners are deeply rounded: leading and trailing drop below
+                // the camera when they don't fit beside it, and the bottom row sits inside the
+                // content margins so the outer buttons' corners clear the curve.
                 DynamicIslandExpandedRegion(.leading) {
                     Label(context.state.deviceName, systemImage: "tv")
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     CaptionsButton(context: context)
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 8) {
                         SpeedReadout(context: context)
                         SpeedButtons(context: context)
                     }
+                    .padding(.horizontal, 6)
                 }
             } compactLeading: {
                 Image(systemName: "play.tv.fill").foregroundStyle(.red)
@@ -43,6 +49,7 @@ struct SpeedLiveActivity: Widget {
                     .monospacedDigit()
                     .foregroundStyle(.red)
             }
+            .contentMargins(.horizontal, 24, for: .expanded)
         }
     }
 }
@@ -129,4 +136,13 @@ private struct CaptionsButton: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+#Preview("Island expanded", as: .dynamicIsland(.expanded), using: SpeedAttributes()) {
+    SpeedLiveActivity()
+} contentStates: {
+    SpeedAttributes.ContentState(deviceId: "preview", deviceName: "Living Room TV", speed: 1.5,
+                                 captions: true, connected: true, error: nil)
+    SpeedAttributes.ContentState(deviceId: "preview", deviceName: "Bedroom Sony Bravia XR", speed: 1,
+                                 captions: false, connected: true, error: nil)
 }
