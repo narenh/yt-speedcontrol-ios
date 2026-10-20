@@ -18,7 +18,7 @@ The Xcode project and Info.plists are generated, so edit `project.yml` rather th
 | Live Activity extension | `com.canopysf.CanopyControl.Widget` |
 | Team | `UC3Y84QJ83` |
 
-The app target has the Associated Domains entitlement for passkeys: `webcredentials:canopysf.com?mode=developer` in Debug (`App/CanopyControl.Debug.entitlements`, skips Apple's CDN on a phone with Developer Mode on) and `webcredentials:canopysf.com` in Release.
+The app target has the Associated Domains entitlement for passkeys, `webcredentials:canopysf.com` (`App/CanopyControl.entitlements`), in every build. Not `?mode=developer`: iOS ignores that entry unless Settings > Developer > Associated Domains Development is on, which left Debug builds with no association.
 
 ### Passkeys need the association file
 

@@ -19,12 +19,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.canopysf.CanopyControl
         TARGETED_DEVICE_FAMILY: "1"
-      # Passkeys for canopysf.com. Debug skips Apple's AASA CDN (needs Developer Mode on the phone).
-      configs:
-        Debug:
-          CODE_SIGN_ENTITLEMENTS: App/CanopyControl.Debug.entitlements
-        Release:
-          CODE_SIGN_ENTITLEMENTS: App/CanopyControl.Release.entitlements
+        # Passkeys for canopysf.com. Not ?mode=developer: iOS ignores that entry unless
+        # Settings > Developer > Associated Domains Development is on, and Apple's CDN has the file.
+        CODE_SIGN_ENTITLEMENTS: App/CanopyControl.entitlements
     info:
       path: App/Info.plist
       properties:
