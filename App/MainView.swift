@@ -1,14 +1,16 @@
 import SwiftUI
 
-/// The signed-in screen: pick a TV, then the same controls as the Live Activity.
+/// The signed-in screen: the selected TV (tap its name to switch), what it's playing, and the
+/// same controls as the Live Activity. Everything else is in Settings.
 struct MainView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: TVModel
+    @State private var switching = false
+    @State private var settings = false
     @State private var pairing = false
-    @State private var confirmRemove = false
-    @State private var renaming = false
-    @State private var newName = ""
+    /// Pair a TV was tapped in the switcher: open pairing once the sheet is gone.
+    @State private var pairAfterSwitcher = false
 
     init() {
         _model = State(initialValue: TVModel())
@@ -20,69 +22,176 @@ struct MainView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    if !model.devices.isEmpty { tvSwitcher }
-                    if model.emailUnverified { UnverifiedBanner() }
-                    if let device = model.selected {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                if model.emailUnverified { UnverifiedBanner() }
+                if let message = model.message {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let device = model.selected {
+                    if device.status == .playing {
                         controls(device)
-                    } else if model.loaded {
-                        emptyState
                     } else {
-                        ProgressView().padding(.top, 80)
+                        idle(device)
                     }
-                    if let message = model.message {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-                .padding()
-            }
-            .navigationTitle("Canopy Control")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar { toolbar }
-            .refreshable { await model.refresh() }
-            // On appear, on foreground, and every ~5 s while active: how changes made from the
-            // TV remote show up (and how the running Live Activity catches up).
-            .task(id: scenePhase) {
-                guard scenePhase == .active else { return }
-                ActivityPush.shared.resync()
-                while !Task.isCancelled {
-                    await model.refresh()
-                    try? await Task.sleep(for: .seconds(5))
+                } else if model.loaded {
+                    noTVs
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 80)
                 }
             }
-            .sheet(isPresented: $pairing) { pairSheet }
-            .confirmationDialog("Remove \(model.selected?.name ?? "this TV")?", isPresented: $confirmRemove, titleVisibility: .visible) {
-                Button("Remove TV", role: .destructive) { Task { await model.removeSelected() } }
-            } message: {
-                Text("You can pair it again later with a new code from the TV.")
-            }
-            .alert("Rename TV", isPresented: $renaming) {
-                TextField("Name", text: $newName)
-                    .textInputAutocapitalization(.words)
-                Button("Save") { Task { await model.renameSelected(to: newName) } }
-                Button("Use TV's name") { Task { await model.renameSelected(to: nil) } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Up to 40 characters.")
-            }
-            .alert("Welcome", isPresented: Binding(get: { session.notice != nil }, set: { if !$0 { session.notice = nil } })) {
-                Button("OK") { session.notice = nil }
-            } message: { Text(session.notice ?? "") }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .animation(.snappy, value: model.selected?.status)
         }
+        .background(Color.groupedBackground)
+        .refreshable { await model.refresh() }
+        // On appear, on foreground, and every ~5 s while active: how changes made from the
+        // TV remote show up (and how the running Live Activity catches up).
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            ActivityPush.shared.resync()
+            Task { await model.loadSettings() }
+            while !Task.isCancelled {
+                await model.refresh()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+        .sheet(isPresented: $switching, onDismiss: {
+            if pairAfterSwitcher {
+                pairAfterSwitcher = false
+                pairing = true
+            }
+        }) {
+            TVSwitcherSheet(model: model) {
+                pairAfterSwitcher = true
+                switching = false
+            }
+        }
+        .sheet(isPresented: $settings) { settingsSheet }
+        .fullScreenCover(isPresented: $pairing) { pairSheet }
+        .alert("Welcome", isPresented: Binding(get: { session.notice != nil }, set: { if !$0 { session.notice = nil } })) {
+            Button("OK") { session.notice = nil }
+        } message: { Text(session.notice ?? "") }
         .task { await session.loadPerson() }
         #if DEBUG
         .onAppear {
             if Self.previewArg("-PreviewNameStep") { pairing = true }
-            if Self.previewArg("-PreviewRename"), let device = model.selected {
-                newName = device.name
-                renaming = true
+            if Self.previewArg("-PreviewSwitcher") { switching = true }
+            if Self.previewArg("-PreviewSettings") || Self.previewArg("-PreviewRename") || Self.previewArg("-PreviewSkipOff") {
+                settings = true
             }
         }
+        #endif
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let device = model.selected {
+                    Button { switching = true } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(device.name)
+                                .font(.largeTitle.bold())
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                            Image(systemName: "chevron.down")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .foregroundStyle(.primary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("TV: \(device.name)")
+                    .accessibilityHint("Shows your TVs")
+                    StatusLine(device: device)
+                        .font(.subheadline)
+                } else {
+                    Text("Canopy Control")
+                        .font(.largeTitle.bold())
+                }
+            }
+            Spacer(minLength: 0)
+            Button { settings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+                    .background(Color.card, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+        }
+        .padding(.top, 8)
+    }
+
+    // MARK: Playing
+
+    private func controls(_ device: DeviceInfo) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            NowPlayingCard(device: device)
+            SpeedCard(speed: device.speed) { model.setSpeed($0) }
+            CaptionsButton(on: device.captions) { model.setCaptions(!device.captions) }
+            if model.autoCaptions {
+                Text("Turned on by speeding up. Change that in Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .disabled(model.controlPending.contains(device.id))
+        .transition(.opacity)
+    }
+
+    // MARK: Empty states
+
+    private func idle(_ device: DeviceInfo) -> some View {
+        ContentUnavailableView {
+            Label("Nothing playing", systemImage: "play.tv")
+        } description: {
+            Text("Open YouTube on \(device.name) and start a video. Speed controls show up here.")
+        }
+        .padding(.top, 60)
+        .transition(.opacity)
+    }
+
+    private var noTVs: some View {
+        ContentUnavailableView {
+            Label("No TVs yet", systemImage: "tv")
+        } description: {
+            Text("Pair a TV with the code YouTube shows on it.")
+        } actions: {
+            Button("Pair a TV") { pairing = true }
+                .buttonStyle(.glassProminent)
+                .tint(.canopyAccent)
+        }
+        .padding(.top, 60)
+    }
+
+    // MARK: Sheets
+
+    @ViewBuilder
+    private var settingsSheet: some View {
+        #if DEBUG
+        if Self.previewArg("-PreviewRename") {
+            SettingsView(model: model, initialPath: [.rename])
+        } else if Self.previewArg("-PreviewSkipOff") {
+            SettingsView(model: model, initialDialog: .skip)
+        } else {
+            SettingsView(model: model)
+        }
+        #else
+        SettingsView(model: model)
         #endif
     }
 
@@ -105,157 +214,6 @@ struct MainView: View {
         return args.contains("-MainViewPreview") && args.contains(name)
     }
     #endif
-
-    // MARK: Pieces
-
-    /// Below the title, centered: the selected TV, opening the list of TVs.
-    private var tvSwitcher: some View {
-        Menu {
-            Picker("TV", selection: $model.selectedId) {
-                ForEach(model.devices) { device in
-                    Label(device.name, systemImage: device.connected ? "circle.fill" : "circle")
-                        .tag(device.id)
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(model.selected?.connected == true ? .green : .gray)
-                    .frame(width: 8, height: 8)
-                Text(model.selected?.name ?? "TV").font(.headline).lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption.weight(.bold))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("TV: \(model.selected?.name ?? "none")")
-    }
-
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                if let person = session.person {
-                    Text("Signed in as \(person.displayName)")
-                }
-                Button("Pair a TV", systemImage: "plus") { pairing = true }
-                // Same path (and push-token registration) as before, from the menu now.
-                if model.activityRunning {
-                    Button("End Live Activity", systemImage: "platter.filled.bottom.iphone") {
-                        Task { await model.endActivity() }
-                    }
-                } else if model.selected != nil {
-                    Button("Start Live Activity", systemImage: "platter.filled.bottom.iphone") {
-                        Task { await model.startActivity() }
-                    }
-                }
-                if let device = model.selected {
-                    Button("Rename TV…", systemImage: "pencil") {
-                        newName = device.name
-                        renaming = true
-                    }
-                    Button("Remove this TV", systemImage: "trash", role: .destructive) { confirmRemove = true }
-                }
-                Divider()
-                Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right") {
-                    Task {
-                        await session.signOut()
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .accessibilityLabel("More")
-        }
-    }
-
-    private func controls(_ device: DeviceInfo) -> some View {
-        VStack(spacing: 24) {
-            HStack(spacing: 6) {
-                Circle().fill(device.connected ? .green : .gray).frame(width: 8, height: 8)
-                Text(device.connected ? "YouTube is open" : "Not connected. Is YouTube open on it?")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(device.speed.speedLabel)
-                    .font(.system(size: 96, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Text("×").font(.largeTitle.weight(.semibold)).foregroundStyle(.secondary)
-            }
-            .animation(.snappy, value: device.speed)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Speed \(device.speed.speedLabel) times")
-
-            HStack(spacing: 8) {
-                ForEach(SpeedAPI.speeds, id: \.self) { speed in
-                    let selected = speed == device.speed
-                    Button {
-                        Task { await model.setSpeed(speed) }
-                    } label: {
-                        Text(speed.speedLabel)
-                            .font(.headline)
-                            .monospacedDigit()
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(selected ? Color.red : Color.secondary.opacity(0.18),
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .foregroundStyle(selected ? .white : .primary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-            }
-
-            Button {
-                Task { await model.setCaptions(!device.captions) }
-            } label: {
-                Label("Captions \(device.captions ? "on" : "off")",
-                      systemImage: device.captions ? "captions.bubble.fill" : "captions.bubble")
-                    .font(.headline)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(device.captions ? Color.primary : Color.secondary.opacity(0.18), in: Capsule())
-                    .foregroundStyle(device.captions ? Color(.systemBackground) : .primary)
-            }
-            .buttonStyle(.plain)
-
-            // Absent: this person may not use it, or the server has it off. No toggle at all then.
-            if let skip = device.skipSponsors {
-                skipSponsorsToggle(skip, device: device)
-            }
-        }
-        .disabled(model.busy)
-        .padding(.top, 24)
-    }
-
-    private func skipSponsorsToggle(_ on: Bool, device: DeviceInfo) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Skip sponsors", isOn: Binding(get: { on }, set: { model.setSkipSponsors($0) }))
-                .font(.headline)
-                .tint(.red)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .disabled(model.skipPending.contains(device.id))
-            Text("Skips sponsor segments and ads with SponsorBlock.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 20)
-        }
-    }
-
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No TVs yet", systemImage: "tv")
-        } description: {
-            Text("Pair a TV with the code YouTube shows on it.")
-        } actions: {
-            Button("Pair a TV") { pairing = true }
-                .buttonStyle(.glassProminent)
-        }
-        .padding(.top, 60)
-    }
 }
 
 /// `403 email_unverified` from the speed server.
@@ -277,8 +235,13 @@ private struct UnverifiedBanner: View {
 }
 
 #if DEBUG
-#Preview("Skip sponsors") {
+#Preview("Playing") {
     MainView(model: .preview())
-        .environment(AppSession())
+        .environment(AppSession.preview())
+}
+
+#Preview("Idle") {
+    MainView(model: .preview(selecting: "preview-2"))
+        .environment(AppSession.preview())
 }
 #endif

@@ -6,16 +6,30 @@ struct DeviceInfo: Codable, Identifiable, Hashable {
     let name: String
     let connected: Bool
     let videoId: String?
-    let speed: Double
-    let captions: Bool
+    /// `var`: the app shows a tapped speed or captions change before the server answers.
+    var speed: Double
+    var captions: Bool
     /// Whether the server skips sponsor segments and ads on this TV. `nil` (absent) when this
-    /// person may not use it or the server has it off, or from an older server: no toggle then.
+    /// person may not use it or the server has it off, or from an older server: no row then.
     var skipSponsors: Bool?
+    /// The playing video's title and channel, when the server knows them (absent from older servers).
+    var title: String?
+    var channel: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, connected, speed, captions
+        case id, name, connected, speed, captions, title, channel
         case videoId = "video_id"
         case skipSponsors = "skip_sponsors"
+    }
+}
+
+/// The signed-in person's settings on the speed server (`GET` and `PATCH /me/settings`).
+struct AccountSettings: Codable, Equatable {
+    /// The server turns captions on when speeding up past 1×, and off back at 1×.
+    var autoCaptions: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case autoCaptions = "auto_captions"
     }
 }
 
@@ -86,6 +100,18 @@ enum SpeedAPI {
 
     static func setCaptions(_ on: Bool, device: String) async throws -> DeviceInfo {
         try await request("devices/\(device)/captions/\(on ? "on" : "off")", method: "POST")
+    }
+
+    // MARK: Settings
+
+    static func settings() async throws -> AccountSettings {
+        try await request("me/settings", method: "GET")
+    }
+
+    /// `PATCH /me/settings`: answers with all the settings.
+    static func setAutoCaptions(_ on: Bool) async throws -> AccountSettings {
+        let body = try JSONEncoder().encode(AccountSettings(autoCaptions: on))
+        return try JSONDecoder().decode(AccountSettings.self, from: try await send("me/settings", method: "PATCH", body: body))
     }
 
     // MARK: Installs (Live Activity push registration)

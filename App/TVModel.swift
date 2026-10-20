@@ -1,12 +1,15 @@
 import ActivityKit
 import Foundation
 import Observation
+import os
 
-/// The signed-in person's TVs, the selected one, and the Live Activity that follows it.
+/// The signed-in person's TVs, the selected one, the Live Activity that follows it, and the
+/// person's settings on the speed server.
 @MainActor
 @Observable
 final class TVModel {
     static let selectedKey = "selectedDevice"
+    private static let log = Logger(subsystem: "com.canopysf.CanopyControl", category: "settings")
 
     private(set) var devices: [DeviceInfo] = []
     private(set) var loaded = false
@@ -15,16 +18,25 @@ final class TVModel {
     private(set) var emailUnverified = false
     /// The last error, from the server's `detail`.
     var message: String?
-    /// A control call in flight, so the buttons don't double-fire.
-    private(set) var busy = false
-    /// TVs with a skip-sponsors change in flight: their toggle waits for the server's answer.
+    /// TVs with a speed or captions change in flight: further taps wait for the server's answer.
+    private(set) var controlPending: Set<String> = []
+    /// TVs with a skip-sponsors change in flight: their row waits for the server's answer.
     private(set) var skipPending: Set<String> = []
-    /// Skip-sponsors changes started or finished per TV, so an answer that left the server
-    /// before one of them landed doesn't put the old value back.
+    /// Changes started or finished per TV, so a refresh that left the server before one of them
+    /// landed doesn't put the old value back.
+    @ObservationIgnored private var controlChanges: [String: Int] = [:]
     @ObservationIgnored private var skipChanges: [String: Int] = [:]
+
+    /// `auto_captions` from `/me/settings`. True until the server says otherwise, and when it
+    /// can't (an older server without the endpoint).
+    private(set) var autoCaptions = true
+    private(set) var autoCaptionsPending = false
+    /// Why the last change to auto captions didn't stick.
+    private(set) var autoCaptionsError: String?
+
     #if DEBUG
     /// Sample TVs, no server: for previews.
-    @ObservationIgnored private var isPreview = false
+    @ObservationIgnored private(set) var isPreview = false
     #endif
 
     var selectedId: String = UserDefaults.standard.string(forKey: selectedKey) ?? "" {
@@ -67,10 +79,10 @@ final class TVModel {
         #if DEBUG
         if isPreview { return }
         #endif
-        let changes = skipChanges
+        let changes = Changes(control: controlChanges, skip: skipChanges)
         do {
             let list = try await SpeedAPI.devices()
-            devices = list.map { keepingSkip($0, since: changes) }
+            devices = list.map { merging($0, since: changes) }
             loaded = true
             emailUnverified = false
             if selected == nil { selectedId = list.first?.id ?? "" }
@@ -88,32 +100,45 @@ final class TVModel {
 
     // MARK: Controls
 
-    func setSpeed(_ speed: Double) async {
-        guard let id = selected?.id else { return }
-        await control { try await SpeedAPI.setSpeed(speed, device: id) }
+    /// The speed changes on screen right away; the server's answer then replaces the TV. An error
+    /// puts the old speed back and shows the server's `detail`.
+    func setSpeed(_ speed: Double) {
+        guard let device = selected, device.speed != speed else { return }
+        control(device.id, change: { $0.speed = speed }) { try await SpeedAPI.setSpeed(speed, device: device.id) }
     }
 
-    func setCaptions(_ on: Bool) async {
-        guard let id = selected?.id else { return }
-        await control { try await SpeedAPI.setCaptions(on, device: id) }
+    func setCaptions(_ on: Bool) {
+        guard let device = selected, device.captions != on else { return }
+        control(device.id, change: { $0.captions = on }) { try await SpeedAPI.setCaptions(on, device: device.id) }
     }
 
-    private func control(_ call: () async throws -> DeviceInfo) async {
-        do {
-            try await apply(call)
-        } catch {
-            handle(error)
+    private func control(_ id: String, change: (inout DeviceInfo) -> Void, call: @escaping () async throws -> DeviceInfo) {
+        guard let i = devices.firstIndex(where: { $0.id == id }), !controlPending.contains(id) else { return }
+        let before = devices[i]
+        change(&devices[i])
+        #if DEBUG
+        if isPreview { return }
+        #endif
+        controlPending.insert(id)
+        controlChanges[id, default: 0] += 1
+        Task {
+            defer {
+                controlPending.remove(id)
+                controlChanges[id, default: 0] += 1
+            }
+            let changes = Changes(control: controlChanges, skip: skipChanges)
+            do {
+                // The answer's speed and captions are the server's word; only skip may be newer here.
+                replace(merging(try await call(), since: changes, keepControl: false))
+                message = nil
+            } catch {
+                if let j = devices.firstIndex(where: { $0.id == id }) {
+                    devices[j].speed = before.speed
+                    devices[j].captions = before.captions
+                }
+                handle(error)
+            }
         }
-    }
-
-    /// Runs a call that answers with one TV, which then replaces it in the list and the Live
-    /// Activity. Throws the error instead of showing it.
-    private func apply(_ call: () async throws -> DeviceInfo) async throws {
-        busy = true
-        defer { busy = false }
-        let changes = skipChanges
-        replace(keepingSkip(try await call(), since: changes))
-        message = nil
     }
 
     private func replace(_ device: DeviceInfo) {
@@ -125,7 +150,7 @@ final class TVModel {
         Task { await SpeedActivity.show(device) }
     }
 
-    /// Turns skipping sponsors on or off for the selected TV: the toggle flips right away, then
+    /// Turns skipping sponsors on or off for the selected TV: the row flips right away, then
     /// takes the server's answer. An error puts it back and shows the server's `detail`.
     func setSkipSponsors(_ on: Bool) {
         guard let i = devices.firstIndex(where: { $0.id == selectedId }),
@@ -133,6 +158,9 @@ final class TVModel {
         let id = devices[i].id
         guard !skipPending.contains(id) else { return }
         devices[i].skipSponsors = on
+        #if DEBUG
+        if isPreview { return }
+        #endif
         skipPending.insert(id)
         skipChanges[id, default: 0] += 1
         Task {
@@ -140,8 +168,9 @@ final class TVModel {
                 skipPending.remove(id)
                 skipChanges[id, default: 0] += 1
             }
+            let changes = Changes(control: controlChanges, skip: skipChanges)
             do {
-                replace(try await SpeedAPI.setSkipSponsors(on, device: id))
+                replace(merging(try await SpeedAPI.setSkipSponsors(on, device: id), since: changes, keepSkip: false))
                 message = nil
             } catch {
                 if let j = devices.firstIndex(where: { $0.id == id }) { devices[j].skipSponsors = before }
@@ -150,13 +179,26 @@ final class TVModel {
         }
     }
 
-    /// The server's answer for a TV, keeping the app's skip-sponsors value if a change to it was
-    /// in flight or landed while this answer was on its way (`changes`: `skipChanges` when it was asked for).
-    private func keepingSkip(_ device: DeviceInfo, since changes: [String: Int]) -> DeviceInfo {
-        guard skipPending.contains(device.id) || skipChanges[device.id] != changes[device.id],
-              let local = devices.first(where: { $0.id == device.id }) else { return device }
+    /// The change counters when a server call was asked for.
+    private struct Changes {
+        let control: [String: Int]
+        let skip: [String: Int]
+    }
+
+    /// The server's answer for a TV, keeping the app's values for anything with a change in
+    /// flight, or one that landed while this answer was on its way.
+    /// `keepControl`/`keepSkip` false: the answer is to that very change, so it's the server's word.
+    private func merging(_ device: DeviceInfo, since changes: Changes, keepControl: Bool = true, keepSkip: Bool = true) -> DeviceInfo {
+        guard let local = devices.first(where: { $0.id == device.id }) else { return device }
+        let id = device.id
         var device = device
-        device.skipSponsors = local.skipSponsors
+        if keepSkip, skipPending.contains(id) || skipChanges[id] != changes.skip[id] {
+            device.skipSponsors = local.skipSponsors
+        }
+        if keepControl, controlPending.contains(id) || controlChanges[id] != changes.control[id] {
+            device.speed = local.speed
+            device.captions = local.captions
+        }
         return device
     }
 
@@ -171,16 +213,72 @@ final class TVModel {
         }
     }
 
-    /// Renames one TV, like `renameSelected`, but throws the server's `detail` (for the pair
-    /// sheet's name step) instead of showing it on the main screen.
+    /// Renames one TV, like `renameSelected`, but throws the server's `detail` (for the rename
+    /// screen and the pairing name step) instead of showing it on the main screen.
     func rename(device id: String, to name: String?) async throws {
-        try await apply { try await SpeedAPI.rename(device: id, name: name) }
+        #if DEBUG
+        if isPreview, let i = devices.firstIndex(where: { $0.id == id }) {
+            let d = devices[i]
+            devices[i] = DeviceInfo(id: d.id, name: name ?? d.name, connected: d.connected, videoId: d.videoId,
+                                    speed: d.speed, captions: d.captions, skipSponsors: d.skipSponsors,
+                                    title: d.title, channel: d.channel)
+            return
+        }
+        #endif
+        let changes = Changes(control: controlChanges, skip: skipChanges)
+        replace(merging(try await SpeedAPI.rename(device: id, name: name), since: changes))
+        message = nil
+    }
+
+    // MARK: Settings
+
+    /// `GET /me/settings`. If it fails (an older server answers 404), auto captions stays on,
+    /// which is what the server did before it had the setting; the failure is only logged.
+    func loadSettings() async {
+        #if DEBUG
+        if isPreview { return }
+        #endif
+        guard !autoCaptionsPending else { return }
+        do {
+            let settings = try await SpeedAPI.settings()
+            if !autoCaptionsPending { autoCaptions = settings.autoCaptions }
+        } catch {
+            if let api = error as? SpeedAPIError, api.isEmailUnverified { emailUnverified = true }
+            Self.log.error("GET /me/settings failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The switch flips right away; an error puts it back and says why under it.
+    func setAutoCaptions(_ on: Bool) {
+        guard on != autoCaptions, !autoCaptionsPending else { return }
+        let before = autoCaptions
+        autoCaptions = on
+        autoCaptionsError = nil
+        #if DEBUG
+        if isPreview { return }
+        #endif
+        autoCaptionsPending = true
+        Task {
+            defer { autoCaptionsPending = false }
+            do {
+                autoCaptions = try await SpeedAPI.setAutoCaptions(on).autoCaptions
+            } catch {
+                autoCaptions = before
+                Self.log.error("PATCH /me/settings failed: \(error.localizedDescription, privacy: .public)")
+                if let api = error as? SpeedAPIError {
+                    if api.isSignedOut { return }
+                    if api.isEmailUnverified { emailUnverified = true }
+                }
+                if (error as? URLError)?.code == .cancelled { return }
+                autoCaptionsError = error.localizedDescription
+            }
+        }
     }
 
     // MARK: Pairing and removing
 
-    /// Throws the server's `detail` so the pair sheet can show it. Returns the new TV, with the
-    /// name it reported (or the custom name it already had, when paired again).
+    /// Throws the server's `detail` so the pairing screen can show it. Returns the new TV, with
+    /// the name it reported (or the custom name it already had, when paired again).
     @discardableResult
     func pair(code: String) async throws -> DeviceInfo {
         do {
@@ -198,7 +296,11 @@ final class TVModel {
     func removeSelected() async {
         guard let id = selected?.id else { return }
         do {
+            #if DEBUG
+            if !isPreview { try await SpeedAPI.remove(device: id) }
+            #else
             try await SpeedAPI.remove(device: id)
+            #endif
             devices.removeAll { $0.id == id }
             selectedId = devices.first?.id ?? ""
             if devices.isEmpty { await endActivity() }
@@ -249,15 +351,17 @@ final class TVModel {
     }
 
     #if DEBUG
-    /// Sample TVs for previews and the `-MainViewPreview` launch argument. Never calls the server
-    /// to load; a toggle still tries, and its error reverts it.
-    static func preview(_ devices: [DeviceInfo] = DeviceInfo.samples) -> TVModel {
+    /// Sample TVs for previews and the `-MainViewPreview` launch argument. Never calls the
+    /// server: controls, renames and removes change the samples only.
+    static func preview(_ devices: [DeviceInfo] = DeviceInfo.samples, selecting id: String? = nil,
+                        autoCaptions: Bool = true, loaded: Bool = true) -> TVModel {
         let model = TVModel()
         model.isPreview = true
         model.devices = devices
-        model.loaded = true
+        model.loaded = loaded
+        model.autoCaptions = autoCaptions
         model.following = true
-        model.selectedId = devices.first?.id ?? ""
+        model.selectedId = id ?? devices.first?.id ?? ""
         model.following = false
         return model
     }
@@ -275,9 +379,14 @@ final class TVModel {
 extension DeviceInfo {
     static let samples: [DeviceInfo] = [
         DeviceInfo(id: "preview-1", name: "Living Room TV", connected: true, videoId: "dQw4w9WgXcQ",
-                   speed: 1.5, captions: true, skipSponsors: true),
+                   speed: 1.5, captions: true, skipSponsors: true,
+                   title: "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)", channel: "Rick Astley"),
         DeviceInfo(id: "preview-2", name: "Bedroom TV", connected: false, videoId: nil,
                    speed: 1, captions: false),
     ]
+
+    /// The first sample with YouTube open but nothing playing.
+    static let waitingSample = DeviceInfo(id: "preview-1", name: "Living Room TV", connected: true, videoId: nil,
+                                          speed: 1, captions: false, skipSponsors: true)
 }
 #endif

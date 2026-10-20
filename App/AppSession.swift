@@ -100,4 +100,14 @@ final class AppSession {
         TokenStore.delete()
         forget()
     }
+
+    #if DEBUG
+    /// For previews and `-MainViewPreview`: a sample person, without signing in.
+    static func preview() -> AppSession {
+        let session = AppSession()
+        session.person = CanopyPerson(id: "preview", email: "alex@example.com", emailVerified: true,
+                                      firstName: "Alex", lastName: "Rivera", shortName: nil)
+        return session
+    }
+    #endif
 }

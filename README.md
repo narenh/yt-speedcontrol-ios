@@ -33,13 +33,16 @@ Until that's served, iOS refuses to use `canopysf.com` passkeys in this app, so 
 ## Use
 
 1. **Sign in** with your Canopy Account: **Sign in with passkey**, or **Email me a code** (then save a passkey on this phone). The app doesn't create accounts: an email with no Canopy Account is sent to [account.canopysf.com](https://account.canopysf.com) to make one first.
-2. **Pair a TV** from the ⋯ menu: on the TV, YouTube → Settings → Link with TV code, then type the code or tap **Scan code** to read it with the camera. Each person has their own TVs (up to 10).
-3. Pick a TV from the switcher under the title. The speed buttons set the speed (captions on above 1×, off at 1×); the captions button toggles captions.
-4. **The Live Activity** puts the same controls on the Lock Screen and in the Dynamic Island. It starts by itself when one of your TVs starts playing, even with the app closed, on every iPhone you're signed in on; the TV that started playing last gets it. **Start Live Activity** (and **End Live Activity**) in the ⋯ menu starts it for the selected TV. Switching TVs in the app switches the Live Activity too, and changes made from the TV remote show up on it.
+2. **Pair a TV**: tap the TV name at the top, then **Pair a TV**. On the TV, YouTube → Settings → Link with TV code. The camera opens full screen and pairs as soon as it reads the code (or **Type the code instead**), then asks for a name. Each person has their own TVs (up to 10).
+3. **The main screen** shows the selected TV's name (tap it for **Your TVs**, the switcher) and whether YouTube is playing on it. While a video plays: the video's thumbnail, title and channel (`title`/`channel` on the device, when the server sends them), the speed card (1, 1.25, 1.5, 1.75, 2×) and the Captions button. With nothing playing it says so and hides the controls.
+4. **The Live Activity** puts the same controls on the Lock Screen and in the Dynamic Island. It starts by itself when one of your TVs starts playing, even with the app closed, on every iPhone you're signed in on; the TV that started playing last gets it. Switching TVs in the app switches the Live Activity too, and changes made from the TV remote show up on it.
 
-**Skip sponsors** (below the captions button) turns sponsor and ad skipping on or off for the selected TV (`PATCH /devices/{id}` with `skip_sponsors`). The server does the skipping with SponsorBlock, using the server owner's categories. The toggle only shows when the server sends `skip_sponsors` for that TV; it's absent for people who may not use it and when the server has it off. It flips right away, and an error puts it back and shows the server's `detail`. The 5 s refresh leaves it alone while a change is in flight. It isn't on the Live Activity.
+**Settings** (the gear):
+- **Auto captions above 1×** (`GET`/`PATCH /me/settings`, `auto_captions`): the server turns captions on when speeding up and off back at 1×. If the server doesn't have the endpoint yet, the app assumes on and only logs it. While on, the main screen says so under the Captions button.
+- The selected TV: **Name** (rename, or **Use TV's name**; `PATCH /devices/{id}`), **Sponsor skipping** (`PATCH /devices/{id}` with `skip_sponsors`, confirmed both ways; the row only shows when the server sends `skip_sponsors` for that TV), and **Remove this TV**.
+- **Show on Lock Screen now** / **End Live Activity**, and the Canopy Account with **Sign out**.
 
-The ⋯ menu also has **Rename TV…** (Save, or **Use TV's name** to go back to the name the TV reports; `PATCH /devices/{id}`), **Remove this TV** and **Sign out**.
+Speed, captions and sponsor skipping change on screen right away, then take the server's answer; an error puts them back and shows the server's `detail`. The 5 s refresh leaves a value alone while a change to it is in flight.
 
 ## How it works
 
@@ -55,7 +58,8 @@ The ⋯ menu also has **Rename TV…** (Save, or **Use TV's name** to go back to
   - The observers start in the App's init, because the system launches the app in the background when a push starts an activity. A new activity (`Activity<SpeedAttributes>.activityUpdates`, or one found at launch) becomes the current one: the others end, its token goes up, and the app selects its TV. The in-app button goes through the same path.
   - Everything is sent again on each foreground. Failed PUTs are logged (`com.canopysf.CanopyControl`, category `push`) and otherwise ignored.
   - **Sign out** sends `DELETE /installs/{install_id}` and ends the activity before deleting the token.
-- **Scan code** (`App/PairSheet.swift`) uses VisionKit's `DataScannerViewController` (text recognition) and stops at the first 12-digit code, allowing spaces or dashes between digits. It fills the field without pairing, so you can check it and tap Pair. The button only appears where the scanner is supported and available; typing the code always works.
+- **Pairing** (`App/PairFlow.swift`, `App/CodeScanner.swift`) uses VisionKit's `DataScannerViewController` (text recognition) and pairs with the first 12-digit code it reads, allowing spaces or dashes between digits. Where the scanner isn't supported or available, it opens on typing the code.
+- **Screens**: `App/MainView.swift` (header, now playing, speed, captions), `App/TVSwitcherSheet.swift`, `App/SettingsView.swift`, with shared pieces in `App/Theme.swift` (colors, cards, status line), `App/NowPlayingCard.swift`, `App/SpeedCard.swift` and `App/CaptionsButton.swift`. Debug builds launched with `-MainViewPreview` show the main screen with sample TVs and no sign-in (see `App/CanopyControlApp.swift` for the other `-Preview…` flags).
 
 ## Limitations / next
 
