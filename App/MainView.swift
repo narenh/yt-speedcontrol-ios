@@ -55,7 +55,7 @@ struct MainView: View {
                     try? await Task.sleep(for: .seconds(5))
                 }
             }
-            .sheet(isPresented: $pairing) { PairSheet(model: model) }
+            .sheet(isPresented: $pairing) { pairSheet }
             .confirmationDialog("Remove \(model.selected?.name ?? "this TV")?", isPresented: $confirmRemove, titleVisibility: .visible) {
                 Button("Remove TV", role: .destructive) { Task { await model.removeSelected() } }
             } message: {
@@ -75,7 +75,36 @@ struct MainView: View {
             } message: { Text(session.notice ?? "") }
         }
         .task { await session.loadPerson() }
+        #if DEBUG
+        .onAppear {
+            if Self.previewArg("-PreviewNameStep") { pairing = true }
+            if Self.previewArg("-PreviewRename"), let device = model.selected {
+                newName = device.name
+                renaming = true
+            }
+        }
+        #endif
     }
+
+    @ViewBuilder
+    private var pairSheet: some View {
+        #if DEBUG
+        if Self.previewArg("-PreviewNameStep") {
+            PairSheet(model: model, paired: DeviceInfo.samples[1])
+        } else {
+            PairSheet(model: model)
+        }
+        #else
+        PairSheet(model: model)
+        #endif
+    }
+
+    #if DEBUG
+    private static func previewArg(_ name: String) -> Bool {
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("-MainViewPreview") && args.contains(name)
+    }
+    #endif
 
     // MARK: Pieces
 

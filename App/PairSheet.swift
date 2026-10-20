@@ -2,10 +2,13 @@ import SwiftUI
 import VisionKit
 
 /// Pair a TV with the code YouTube shows under Settings → Link with TV code. Opens on the camera
-/// and pairs as soon as it reads a code; typing it is the fallback.
+/// and pairs as soon as it reads a code; typing it is the fallback. Once paired, it asks for a
+/// name, with the TV's own as the placeholder.
 struct PairSheet: View {
     let model: TVModel
     @Environment(\.dismiss) private var dismiss
+    /// The TV just paired: the sheet is on its name step.
+    @State private var paired: DeviceInfo?
     @State private var manual = !PairSheet.canScan
     @State private var code = ""
     @State private var isWorking = false
@@ -18,25 +21,45 @@ struct PairSheet: View {
 
     private static var canScan: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
 
+    init(model: TVModel) {
+        self.model = model
+    }
+
+    #if DEBUG
+    /// For previews: the sheet already on the name step for `paired`.
+    init(model: TVModel, paired: DeviceInfo) {
+        self.model = model
+        _paired = State(initialValue: paired)
+    }
+    #endif
+
     var body: some View {
         NavigationStack {
-            Group {
-                if manual { manualForm } else { scanView }
+            if let paired {
+                NameStep(model: model, device: paired) { dismiss() }
+            } else {
+                pairing
             }
-            .navigationTitle("Pair a TV")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", role: .cancel) { dismiss() }
-                }
-                if manual {
-                    ToolbarItem(placement: .confirmationAction) {
-                        if isWorking {
-                            ProgressView()
-                        } else {
-                            Button("Pair") { Task { await pair(code) } }
-                                .disabled(code.filter(\.isNumber).isEmpty)
-                        }
+        }
+    }
+
+    private var pairing: some View {
+        Group {
+            if manual { manualForm } else { scanView }
+        }
+        .navigationTitle("Pair a TV")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", role: .cancel) { dismiss() }
+            }
+            if manual {
+                ToolbarItem(placement: .confirmationAction) {
+                    if isWorking {
+                        ProgressView()
+                    } else {
+                        Button("Pair") { Task { await pair(code) } }
+                            .disabled(code.filter(\.isNumber).isEmpty)
                     }
                 }
             }
@@ -126,10 +149,97 @@ struct PairSheet: View {
         defer { isWorking = false }
         do {
             // Spaces in the code are fine for the server.
-            try await model.pair(code: code.trimmingCharacters(in: .whitespacesAndNewlines))
-            dismiss()
+            paired = try await model.pair(code: code.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+/// After pairing: an optional name for the TV. Empty keeps the name the TV reported, which is
+/// the placeholder. The TV is already in the list and selected behind the sheet.
+private struct NameStep: View {
+    let model: TVModel
+    let device: DeviceInfo
+    let done: () -> Void
+    @State private var name = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @FocusState private var focused: Bool
+
+    /// The server allows 1–40 characters; it has the last word.
+    private static let maxLength = 40
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var tooLong: Bool { trimmed.count > Self.maxLength }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    TextField(device.name, text: $name)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        .focused($focused)
+                        .onSubmit(save)
+                    if !name.isEmpty && focused && !isSaving {
+                        Button("Clear", systemImage: "xmark.circle.fill") { name = "" }
+                            .labelStyle(.iconOnly)
+                            .foregroundStyle(.tertiary)
+                            .buttonStyle(.plain)
+                    }
+                }
+            } footer: {
+                Text(tooLong ? "That's \(trimmed.count) characters. Up to \(Self.maxLength)."
+                             : "Leave it empty to keep “\(device.name)”.")
+                    .foregroundStyle(tooLong ? .orange : .secondary)
+            }
+            if let errorMessage {
+                Section { Text(errorMessage).foregroundStyle(.orange) }
+            }
+        }
+        .navigationTitle("Name this TV")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Skip", action: done).disabled(isSaving)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save", action: save)
+                        .buttonStyle(.glassProminent)
+                        .disabled(tooLong)
+                }
+            }
+        }
+        .onAppear {
+            #if DEBUG
+            // `-PreviewNameText "<text>"`: start with text in the field, for checking the layout.
+            if let text = UserDefaults.standard.string(forKey: "PreviewNameText") { name = text }
+            #endif
+            focused = true
+        }
+    }
+
+    /// Empty text is the same as Skip.
+    private func save() {
+        guard !isSaving, !tooLong else { return }
+        let newName = trimmed
+        guard !newName.isEmpty else { return done() }
+        isSaving = true
+        errorMessage = nil
+        Task {
+            defer { isSaving = false }
+            do {
+                try await model.rename(device: device.id, to: newName)
+                done()
+            } catch {
+                errorMessage = error.localizedDescription
+                focused = true
+            }
         }
     }
 }
@@ -210,3 +320,9 @@ private struct CodeScanner: UIViewControllerRepresentable {
         }
     }
 }
+
+#if DEBUG
+#Preview("Name this TV") {
+    PairSheet(model: .preview(), paired: DeviceInfo.samples[1])
+}
+#endif

@@ -8,6 +8,8 @@ struct CanopyControlApp: App {
         // Before anything reads the token: a Keychain item left from an earlier install.
         TokenStore.clearIfFreshInstall()
         _session = State(initialValue: AppSession())
+        // SwiftUI's alert text fields (Rename TV) have no clear-button option of their own.
+        UITextField.appearance(whenContainedInInstancesOf: [UIAlertController.self]).clearButtonMode = .whileEditing
         // Here rather than in a view: the system launches the app in the background (no UI)
         // when the server starts a Live Activity by push.
         #if DEBUG
@@ -23,7 +25,8 @@ struct CanopyControlApp: App {
 
     #if DEBUG
     /// Debug only: launch with `-MainViewPreview` to show the main screen with sample TVs and no
-    /// sign-in, for checking its layout in the simulator.
+    /// sign-in, for checking its layout in the simulator. Add `-PreviewNameStep` to open the pair
+    /// sheet on its name step (`-PreviewNameText "<text>"` fills its field), or `-PreviewRename` to open the Rename TV alert.
     private static var mainViewPreview: Bool { ProcessInfo.processInfo.arguments.contains("-MainViewPreview") }
     #endif
 

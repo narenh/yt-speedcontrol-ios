@@ -99,15 +99,21 @@ final class TVModel {
     }
 
     private func control(_ call: () async throws -> DeviceInfo) async {
-        busy = true
-        defer { busy = false }
-        let changes = skipChanges
         do {
-            replace(keepingSkip(try await call(), since: changes))
-            message = nil
+            try await apply(call)
         } catch {
             handle(error)
         }
+    }
+
+    /// Runs a call that answers with one TV, which then replaces it in the list and the Live
+    /// Activity. Throws the error instead of showing it.
+    private func apply(_ call: () async throws -> DeviceInfo) async throws {
+        busy = true
+        defer { busy = false }
+        let changes = skipChanges
+        replace(keepingSkip(try await call(), since: changes))
+        message = nil
     }
 
     private func replace(_ device: DeviceInfo) {
@@ -158,18 +164,31 @@ final class TVModel {
     /// take the answer right away; the server's push says the same a moment later.
     func renameSelected(to name: String?) async {
         guard let id = selected?.id else { return }
-        await control { try await SpeedAPI.rename(device: id, name: name) }
+        do {
+            try await rename(device: id, to: name)
+        } catch {
+            handle(error)
+        }
+    }
+
+    /// Renames one TV, like `renameSelected`, but throws the server's `detail` (for the pair
+    /// sheet's name step) instead of showing it on the main screen.
+    func rename(device id: String, to name: String?) async throws {
+        try await apply { try await SpeedAPI.rename(device: id, name: name) }
     }
 
     // MARK: Pairing and removing
 
-    /// Throws the server's `detail` so the pair sheet can show it.
-    func pair(code: String) async throws {
+    /// Throws the server's `detail` so the pair sheet can show it. Returns the new TV, with the
+    /// name it reported (or the custom name it already had, when paired again).
+    @discardableResult
+    func pair(code: String) async throws -> DeviceInfo {
         do {
             let device = try await SpeedAPI.pair(code: code)
             replace(device)
             selectedId = device.id
             message = nil
+            return device
         } catch {
             if let api = error as? SpeedAPIError, api.isEmailUnverified { emailUnverified = true }
             throw error
