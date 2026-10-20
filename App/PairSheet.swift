@@ -1,37 +1,27 @@
 import SwiftUI
 import VisionKit
 
-/// Pair a TV with the code YouTube shows under Settings → Link with TV code: typed, or read with
-/// the camera.
+/// Pair a TV with the code YouTube shows under Settings → Link with TV code. Opens on the camera
+/// and pairs as soon as it reads a code; typing it is the fallback.
 struct PairSheet: View {
     let model: TVModel
     @Environment(\.dismiss) private var dismiss
+    @State private var manual = !PairSheet.canScan
     @State private var code = ""
     @State private var isWorking = false
     @State private var errorMessage: String?
-    @State private var scanning = false
+    /// The code the camera read, while pairing with it or after it failed.
+    @State private var scanned: String?
+    /// Bumped to start a fresh scanner after a failed pairing.
+    @State private var scanAttempt = 0
     @FocusState private var focused: Bool
 
-    private var canScan: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
+    private static var canScan: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("TV code", text: $code)
-                        .keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .font(.title3.monospacedDigit())
-                        .focused($focused)
-                    if canScan {
-                        Button("Scan code", systemImage: "camera.viewfinder") { scanning = true }
-                    }
-                } footer: {
-                    Text("On the TV: YouTube → Settings → Link with TV code")
-                }
-                if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.orange) }
-                }
+            Group {
+                if manual { manualForm } else { scanView }
             }
             .navigationTitle("Pair a TV")
             .navigationBarTitleDisplayMode(.inline)
@@ -39,26 +29,99 @@ struct PairSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", role: .cancel) { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isWorking {
-                        ProgressView()
-                    } else {
-                        Button("Pair") { Task { await pair() } }
-                            .disabled(code.filter(\.isNumber).isEmpty)
+                if manual {
+                    ToolbarItem(placement: .confirmationAction) {
+                        if isWorking {
+                            ProgressView()
+                        } else {
+                            Button("Pair") { Task { await pair(code) } }
+                                .disabled(code.filter(\.isNumber).isEmpty)
+                        }
                     }
-                }
-            }
-            .onAppear { focused = !canScan }
-            .fullScreenCover(isPresented: $scanning) {
-                CodeScannerSheet { digits in
-                    code = TVCode.grouped(digits)
-                    scanning = false
                 }
             }
         }
     }
 
-    private func pair() async {
+    private var scanView: some View {
+        ZStack(alignment: .bottom) {
+            if scanned == nil {
+                CodeScanner { digits in
+                    scanned = digits
+                    Task { await pair(digits) }
+                }
+                .id(scanAttempt)
+                .ignoresSafeArea(edges: .bottom)
+            } else {
+                Color.black.ignoresSafeArea(edges: .bottom)
+            }
+            VStack(spacing: 14) {
+                if let scanned {
+                    VStack(spacing: 10) {
+                        if isWorking {
+                            ProgressView()
+                            Text("Pairing \(TVCode.grouped(scanned))…").font(.subheadline.weight(.semibold))
+                        } else if let errorMessage {
+                            Text(errorMessage).font(.subheadline).multilineTextAlignment(.center)
+                            Button("Scan again", systemImage: "camera.viewfinder") {
+                                self.scanned = nil
+                                self.errorMessage = nil
+                                scanAttempt += 1
+                            }
+                            .buttonStyle(.glassProminent)
+                        }
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                } else {
+                    Text("Point the camera at the code on the TV\n(YouTube → Settings → Link with TV code)")
+                        .font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                Button("Enter code manually", systemImage: "keyboard") {
+                    if let scanned { code = TVCode.grouped(scanned) }
+                    errorMessage = nil
+                    manual = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .disabled(isWorking)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var manualForm: some View {
+        Form {
+            Section {
+                TextField("TV code", text: $code)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .font(.title3.monospacedDigit())
+                    .focused($focused)
+                if Self.canScan {
+                    Button("Scan code instead", systemImage: "camera.viewfinder") {
+                        scanned = nil
+                        errorMessage = nil
+                        scanAttempt += 1
+                        manual = false
+                    }
+                }
+            } footer: {
+                Text("On the TV: YouTube → Settings → Link with TV code")
+            }
+            if let errorMessage {
+                Section { Text(errorMessage).foregroundStyle(.orange) }
+            }
+        }
+        .onAppear { focused = true }
+    }
+
+    private func pair(_ code: String) async {
         isWorking = true
         defer { isWorking = false }
         do {
@@ -95,31 +158,7 @@ enum TVCode {
     }
 }
 
-/// The camera, with a Cancel button.
-private struct CodeScannerSheet: View {
-    let onCode: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            CodeScanner(onCode: onCode).ignoresSafeArea()
-            VStack(spacing: 14) {
-                Text("Point the camera at the code on the TV")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .buttonStyle(.glass)
-                    .controlSize(.large)
-            }
-            .padding(.bottom, 24)
-        }
-    }
-}
-
-/// VisionKit's live text scanner, stopping at the first 12-digit TV code. It doesn't submit:
-/// the code goes into the field for the person to check and tap Pair.
+/// VisionKit's live text scanner, stopping at the first 12-digit TV code.
 private struct CodeScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
 
