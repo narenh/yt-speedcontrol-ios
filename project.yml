@@ -19,6 +19,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.canopysf.CanopyControl
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # App/AppIcon.icon, an Icon Composer file
         # Push Notifications (aps-environment, for Live Activity push) and passkeys for canopysf.com. Not ?mode=developer: iOS ignores that entry unless
         # Settings > Developer > Associated Domains Development is on, and Apple's CDN has the file.
         CODE_SIGN_ENTITLEMENTS: App/CanopyControl.entitlements
