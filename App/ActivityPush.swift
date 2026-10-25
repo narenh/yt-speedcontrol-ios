@@ -27,11 +27,22 @@ final class ActivityPush {
     private static let installKey = "installId"
     private static let log = Logger(subsystem: "com.canopysf.CanopyControl", category: "push")
 
-    #if DEBUG
-    private static let environment = "sandbox"
-    #else
-    private static let environment = "production"
-    #endif
+    /// The APNs environment of this build's tokens. It follows the signing, not the build
+    /// configuration: a development profile (Xcode, devicectl, ota-build's development exports,
+    /// Release ones too) says `aps-environment: development`, so its tokens are sandbox ones. Ad hoc
+    /// and enterprise profiles say `production`, and App Store builds have no profile at all.
+    private static let environment: String = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              // The profile is a signed CMS message with the plist inside it as plain XML.
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(from: data[start.lowerBound..<end.upperBound], format: nil),
+              let entitlements = (plist as? [String: Any])?["Entitlements"] as? [String: Any],
+              entitlements["aps-environment"] as? String == "development"
+        else { return "production" }
+        return "sandbox"
+    }()
 
     /// This app install, as the server knows it. A new one after signing out.
     private static var installId: String {
