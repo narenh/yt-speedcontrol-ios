@@ -34,7 +34,7 @@ struct CaptionsButton: View {
             .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .animation(.snappy, value: on)
+        .animation(.snappy(duration: 0.2), value: on)
         .sensoryFeedback(.impact(weight: .light), trigger: on)
         .accessibilityLabel("Captions")
         .accessibilityValue(on ? "On" : "Off")

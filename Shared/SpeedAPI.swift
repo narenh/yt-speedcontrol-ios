@@ -31,6 +31,19 @@ struct AccountSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case autoCaptions = "auto_captions"
     }
+
+    /// The last `auto_captions` the app heard, for taps on the Live Activity (they run in the
+    /// app's process, but not through `TVModel`). True until the server says otherwise.
+    static var saved: Bool {
+        get { UserDefaults.standard.object(forKey: "autoCaptions") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCaptions") }
+    }
+
+    /// Captions after a speed change, as the server sets them: with auto captions on, on above 1×
+    /// and off at 1×; with it off, as they were.
+    static func captions(afterSpeed speed: Double, autoCaptions: Bool, current: Bool) -> Bool {
+        autoCaptions ? speed > 1 : current
+    }
 }
 
 /// An error answer from the speed server: `{"detail": "<sentence>", "reason": "<code>"}`.

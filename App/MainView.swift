@@ -160,7 +160,6 @@ struct MainView: View {
             // Always full size: the now-playing area above gives way instead.
             .fixedSize(horizontal: false, vertical: true)
             .layoutPriority(1)
-            .disabled(model.controlPending.contains(device.id))
         }
         .transition(.opacity)
     }

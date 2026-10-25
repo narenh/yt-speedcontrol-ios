@@ -38,7 +38,7 @@ struct SpeedCard: View {
         .padding(compact ? EdgeInsets(top: 12, leading: 14, bottom: 14, trailing: 14)
                          : EdgeInsets(top: 18, leading: 16, bottom: 16, trailing: 16))
         .card()
-        .animation(.snappy, value: speed)
+        .animation(.snappy(duration: 0.2), value: speed)
         .sensoryFeedback(.selection, trigger: speed)
     }
 

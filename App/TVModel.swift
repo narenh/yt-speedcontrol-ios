@@ -18,8 +18,10 @@ final class TVModel {
     private(set) var emailUnverified = false
     /// The last error, from the server's `detail`.
     var message: String?
-    /// TVs with a speed or captions change in flight: further taps wait for the server's answer.
-    private(set) var controlPending: Set<String> = []
+    /// Speed and captions changes in flight per TV. Taps don't wait for them: only the latest
+    /// tap's answer is shown (`controlTaps`).
+    @ObservationIgnored private var controlPending: [String: Int] = [:]
+    @ObservationIgnored private var controlTaps: [String: Int] = [:]
     /// TVs with a skip-sponsors change in flight: their row waits for the server's answer.
     private(set) var skipPending: Set<String> = []
     /// Changes started or finished per TV, so a refresh that left the server before one of them
@@ -28,8 +30,15 @@ final class TVModel {
     @ObservationIgnored private var skipChanges: [String: Int] = [:]
 
     /// `auto_captions` from `/me/settings`. True until the server says otherwise, and when it
-    /// can't (an older server without the endpoint).
-    private(set) var autoCaptions = true
+    /// can't (an older server without the endpoint). Saved for the Live Activity's speed buttons.
+    private(set) var autoCaptions = AccountSettings.saved {
+        didSet {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            AccountSettings.saved = autoCaptions
+        }
+    }
     private(set) var autoCaptionsPending = false
     /// Why the last change to auto captions didn't stick.
     private(set) var autoCaptionsError: String?
@@ -100,11 +109,16 @@ final class TVModel {
 
     // MARK: Controls
 
-    /// The speed changes on screen right away; the server's answer then replaces the TV. An error
-    /// puts the old speed back and shows the server's `detail`.
+    /// The speed changes on screen right away, and with auto captions on, captions with it; the
+    /// server's answer then replaces the TV. An error puts the old values back and shows the
+    /// server's `detail`.
     func setSpeed(_ speed: Double) {
         guard let device = selected, device.speed != speed else { return }
-        control(device.id, change: { $0.speed = speed }) { try await SpeedAPI.setSpeed(speed, device: device.id) }
+        let autoCaptions = autoCaptions
+        control(device.id, change: {
+            $0.speed = speed
+            $0.captions = AccountSettings.captions(afterSpeed: speed, autoCaptions: autoCaptions, current: $0.captions)
+        }) { try await SpeedAPI.setSpeed(speed, device: device.id) }
     }
 
     func setCaptions(_ on: Bool) {
@@ -113,25 +127,32 @@ final class TVModel {
     }
 
     private func control(_ id: String, change: (inout DeviceInfo) -> Void, call: @escaping () async throws -> DeviceInfo) {
-        guard let i = devices.firstIndex(where: { $0.id == id }), !controlPending.contains(id) else { return }
+        guard let i = devices.firstIndex(where: { $0.id == id }) else { return }
         let before = devices[i]
         change(&devices[i])
         #if DEBUG
         if isPreview { return }
         #endif
-        controlPending.insert(id)
+        controlTaps[id, default: 0] += 1
+        let tap = controlTaps[id]
+        controlPending[id, default: 0] += 1
         controlChanges[id, default: 0] += 1
         Task {
             defer {
-                controlPending.remove(id)
+                controlPending[id, default: 1] -= 1
+                if controlPending[id] == 0 { controlPending[id] = nil }
                 controlChanges[id, default: 0] += 1
             }
             let changes = Changes(control: controlChanges, skip: skipChanges)
             do {
+                let answer = try await call()
+                // A later tap's answer says where things ended up; this one would flicker back.
+                guard controlTaps[id] == tap else { return }
                 // The answer's speed and captions are the server's word; only skip may be newer here.
-                replace(merging(try await call(), since: changes, keepControl: false))
+                replace(merging(answer, since: changes, keepControl: false))
                 message = nil
             } catch {
+                guard controlTaps[id] == tap else { return }
                 if let j = devices.firstIndex(where: { $0.id == id }) {
                     devices[j].speed = before.speed
                     devices[j].captions = before.captions
@@ -195,7 +216,7 @@ final class TVModel {
         if keepSkip, skipPending.contains(id) || skipChanges[id] != changes.skip[id] {
             device.skipSponsors = local.skipSponsors
         }
-        if keepControl, controlPending.contains(id) || controlChanges[id] != changes.control[id] {
+        if keepControl, controlPending[id] != nil || controlChanges[id] != changes.control[id] {
             device.speed = local.speed
             device.captions = local.captions
         }

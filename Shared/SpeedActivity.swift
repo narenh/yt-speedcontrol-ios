@@ -40,7 +40,11 @@ struct SetSpeedIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        await SpeedActivity.apply(deviceId: deviceId) {
+        let autoCaptions = AccountSettings.saved
+        await SpeedActivity.apply(deviceId: deviceId, change: {
+            $0.speed = speed
+            $0.captions = AccountSettings.captions(afterSpeed: speed, autoCaptions: autoCaptions, current: $0.captions)
+        }) {
             try await SpeedAPI.setSpeed(speed, device: deviceId)
         }
         return .result()
@@ -61,7 +65,7 @@ struct SetCaptionsIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        await SpeedActivity.apply(deviceId: deviceId) {
+        await SpeedActivity.apply(deviceId: deviceId, change: { $0.captions = on }) {
             try await SpeedAPI.setCaptions(on, device: deviceId)
         }
         return .result()
@@ -85,21 +89,43 @@ enum SpeedActivity {
 
     static var isRunning: Bool { current != nil }
 
-    /// Runs a server call for a tap on the activity and shows the result (or its error) on it.
+    /// Taps on the activity's buttons so far: only the latest one's answer is shown.
+    @MainActor private static var taps = 0
+
+    /// Runs a server call for a tap on the activity. `change` shows on it right away; the server's
+    /// answer then replaces it, or an error puts the old speed and captions back and says why.
+    /// Answers to earlier taps are dropped, so quick taps don't flicker back through them.
     /// A signed-out answer ends the activity: its buttons can't work until the app signs in again.
-    static func apply(deviceId: String, _ call: () async throws -> DeviceInfo) async {
+    @MainActor
+    static func apply(deviceId: String, change: (inout SpeedAttributes.ContentState) -> Void,
+                      _ call: () async throws -> DeviceInfo) async {
+        taps += 1
+        let tap = taps
+        var before: SpeedAttributes.ContentState?
+        if let activity = current, activity.content.state.deviceId == deviceId {
+            before = activity.content.state
+            var state = activity.content.state
+            change(&state)
+            state.error = nil
+            await activity.update(ActivityContent(state: state, staleDate: nil))
+        }
         do {
             let info = try await call()
+            guard tap == taps else { return }
             await show(info)
         } catch {
             guard let activity = current, activity.content.state.deviceId == deviceId else { return }
             var state = activity.content.state
-            state.error = error.localizedDescription
+            if let before {
+                state.speed = before.speed
+                state.captions = before.captions
+            }
             if let api = error as? SpeedAPIError, api.isSignedOut {
                 TokenStore.delete()
                 state.error = "Signed out. Open Canopy Control to sign in."
                 await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .default)
-            } else {
+            } else if tap == taps {
+                state.error = error.localizedDescription
                 await activity.update(ActivityContent(state: state, staleDate: nil))
             }
         }

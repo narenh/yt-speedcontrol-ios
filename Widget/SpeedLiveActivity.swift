@@ -12,6 +12,7 @@ struct SpeedLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: SpeedAttributes.self) { context in
             LockScreenView(context: context)
+                .quickUpdates(context)
                 .padding(14)
                 .activityBackgroundTint(.black.opacity(0.45))
                 .activitySystemActionForegroundColor(.white)
@@ -28,6 +29,7 @@ struct SpeedLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     CaptionsButton(context: context)
+                        .quickUpdates(context)
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -36,6 +38,7 @@ struct SpeedLiveActivity: Widget {
                         SpeedButtons(context: context)
                     }
                     .padding(.horizontal, 6)
+                    .quickUpdates(context)
                 }
             } compactLeading: {
                 Image(systemName: "play.tv.fill").foregroundStyle(.red)
@@ -43,14 +46,24 @@ struct SpeedLiveActivity: Widget {
                 Text("\(context.state.speed.speedLabel)×")
                     .monospacedDigit()
                     .foregroundStyle(.red)
+                    .quickUpdates(context)
             } minimal: {
                 Text(context.state.speed.speedLabel)
                     .font(.caption2.weight(.bold))
                     .monospacedDigit()
                     .foregroundStyle(.red)
+                    .quickUpdates(context)
             }
             .contentMargins(.horizontal, 24, for: .expanded)
         }
+    }
+}
+
+private extension View {
+    /// The system's default animation for an update is a slow crossfade, which makes a tap feel
+    /// laggy: changes snap in quickly instead.
+    func quickUpdates(_ context: ActivityViewContext<SpeedAttributes>) -> some View {
+        animation(.snappy(duration: 0.15), value: context.state)
     }
 }
 
