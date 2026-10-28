@@ -5,7 +5,7 @@ import Foundation
 /// There's at most one activity, and it shows the TV selected in the app. The TV lives in the
 /// state rather than the attributes, so switching TVs updates the activity in place.
 /// The server sends this same shape in its pushes (attributes `{}`, content-state keys
-/// `deviceId, deviceName, speed, captions, connected`, no `error`): don't rename anything.
+/// `deviceId, deviceName, speed, captions, playing, connected`, no `error`): don't rename anything.
 struct SpeedAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var deviceId: String
@@ -13,6 +13,8 @@ struct SpeedAttributes: ActivityAttributes {
         var speed: Double
         var captions: Bool
         var connected: Bool
+        /// Optional: older servers don't send it, and it's `null` until the TV has said.
+        var playing: Bool?
         var error: String?
     }
 }
@@ -20,7 +22,7 @@ struct SpeedAttributes: ActivityAttributes {
 extension SpeedAttributes.ContentState {
     init(_ info: DeviceInfo) {
         self.init(deviceId: info.id, deviceName: info.name, speed: info.speed,
-                  captions: info.captions, connected: info.connected, error: nil)
+                  captions: info.captions, connected: info.connected, playing: info.playing, error: nil)
     }
 }
 
@@ -72,6 +74,27 @@ struct SetCaptionsIntent: LiveActivityIntent {
     }
 }
 
+struct SetPlayingIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Play or Pause"
+    static let isDiscoverable = false
+
+    @Parameter(title: "Play") var play: Bool
+    @Parameter(title: "TV") var deviceId: String
+
+    init() {}
+    init(play: Bool, deviceId: String) {
+        self.play = play
+        self.deviceId = deviceId
+    }
+
+    func perform() async throws -> some IntentResult {
+        await SpeedActivity.apply(deviceId: deviceId, change: { $0.playing = play }) {
+            try await SpeedAPI.setPlaying(play, device: deviceId)
+        }
+        return .result()
+    }
+}
+
 // MARK: - Activity management
 
 enum SpeedActivity {
@@ -93,7 +116,7 @@ enum SpeedActivity {
     @MainActor private static var taps = 0
 
     /// Runs a server call for a tap on the activity. `change` shows on it right away; the server's
-    /// answer then replaces it, or an error puts the old speed and captions back and says why.
+    /// answer then replaces it, or an error puts the old speed, captions and playing back and says why.
     /// Answers to earlier taps are dropped, so quick taps don't flicker back through them.
     /// A signed-out answer ends the activity: its buttons can't work until the app signs in again.
     @MainActor
@@ -119,6 +142,7 @@ enum SpeedActivity {
             if let before {
                 state.speed = before.speed
                 state.captions = before.captions
+                state.playing = before.playing
             }
             if let api = error as? SpeedAPIError, api.isSignedOut {
                 TokenStore.delete()

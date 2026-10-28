@@ -126,6 +126,11 @@ final class TVModel {
         control(device.id, change: { $0.captions = on }) { try await SpeedAPI.setCaptions(on, device: device.id) }
     }
 
+    func setPlaying(_ play: Bool) {
+        guard let device = selected else { return }
+        control(device.id, change: { $0.playing = play }) { try await SpeedAPI.setPlaying(play, device: device.id) }
+    }
+
     private func control(_ id: String, change: (inout DeviceInfo) -> Void, call: @escaping () async throws -> DeviceInfo) {
         guard let i = devices.firstIndex(where: { $0.id == id }) else { return }
         let before = devices[i]
@@ -148,7 +153,7 @@ final class TVModel {
                 let answer = try await call()
                 // A later tap's answer says where things ended up; this one would flicker back.
                 guard controlTaps[id] == tap else { return }
-                // The answer's speed and captions are the server's word; only skip may be newer here.
+                // The answer's speed, captions and playing are the server's word; only skip may be newer here.
                 replace(merging(answer, since: changes, keepControl: false))
                 message = nil
             } catch {
@@ -156,6 +161,7 @@ final class TVModel {
                 if let j = devices.firstIndex(where: { $0.id == id }) {
                     devices[j].speed = before.speed
                     devices[j].captions = before.captions
+                    devices[j].playing = before.playing
                 }
                 handle(error)
             }
@@ -219,6 +225,7 @@ final class TVModel {
         if keepControl, controlPending[id] != nil || controlChanges[id] != changes.control[id] {
             device.speed = local.speed
             device.captions = local.captions
+            device.playing = local.playing
         }
         return device
     }
@@ -241,7 +248,7 @@ final class TVModel {
         if isPreview, let i = devices.firstIndex(where: { $0.id == id }) {
             let d = devices[i]
             devices[i] = DeviceInfo(id: d.id, name: name ?? d.name, connected: d.connected, videoId: d.videoId,
-                                    speed: d.speed, captions: d.captions, skipSponsors: d.skipSponsors,
+                                    speed: d.speed, captions: d.captions, playing: d.playing, skipSponsors: d.skipSponsors,
                                     title: d.title, channel: d.channel)
             return
         }

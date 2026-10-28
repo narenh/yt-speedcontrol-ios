@@ -1,37 +1,29 @@
 import SwiftUI
 
-/// "SPEED", the current speed, and the five speeds as a segmented control.
+/// "SPEED", play/pause, and the five speeds as a segmented control (the selected one is the speed).
 struct SpeedCard: View {
     let speed: Double
+    /// `nil` (the TV hasn't said): shown as playing, since there's a video.
+    let playing: Bool?
+    let togglePlaying: () -> Void
     let select: (Double) -> Void
-    /// Short screens (iPhone SE): tighter padding and a smaller readout; same segments.
+    /// Short screens (iPhone SE): tighter padding and a smaller button; same segments.
     var compact = false
 
-    @ScaledMetric(relativeTo: .largeTitle) private var readoutSize: CGFloat = 44
-    @ScaledMetric(relativeTo: .title) private var timesSize: CGFloat = 26
+    @ScaledMetric(relativeTo: .largeTitle) private var playSize: CGFloat = 52
     @ScaledMetric(relativeTo: .body) private var segmentHeight: CGFloat = 44
     @Namespace private var selection
 
     var body: some View {
         VStack(spacing: compact ? 10 : 14) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack {
                 Text("Speed")
                     .font(.subheadline.weight(.semibold))
                     .textCase(.uppercase)
                     .tracking(0.4)
                     .foregroundStyle(.secondary)
                 Spacer()
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text(speed.speedLabel)
-                        .font(.system(size: readoutSize * (compact ? 0.82 : 1), weight: .bold))
-                        .tracking(-1)
-                        .monospacedDigit()
-                        .contentTransition(.numericText(value: speed))
-                    Text("×")
-                        .font(.system(size: timesSize * (compact ? 0.82 : 1), weight: .regular))
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityHidden(true)
+                playPause
             }
             segments
         }
@@ -39,7 +31,25 @@ struct SpeedCard: View {
                          : EdgeInsets(top: 18, leading: 16, bottom: 16, trailing: 16))
         .card()
         .animation(.snappy(duration: 0.2), value: speed)
+        .animation(.snappy(duration: 0.2), value: playing)
         .sensoryFeedback(.selection, trigger: speed)
+    }
+
+    private var playPause: some View {
+        let isPlaying = playing ?? true
+        let size = playSize * (compact ? 0.82 : 1)
+        return Button(action: togglePlaying) {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: size * 0.4, weight: .bold))
+                .contentTransition(.symbolEffect(.replace))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(Color.canopyAccent, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.impact(weight: .light), trigger: playing)
+        .accessibilityLabel(isPlaying ? "Pause" : "Play")
     }
 
     private var segments: some View {
@@ -84,7 +94,8 @@ struct SpeedCard: View {
 #if DEBUG
 #Preview {
     @Previewable @State var speed = 1.5
-    SpeedCard(speed: speed) { speed = $0 }
+    @Previewable @State var playing = true
+    SpeedCard(speed: speed, playing: playing, togglePlaying: { playing.toggle() }) { speed = $0 }
         .padding()
         .background(Color.groupedBackground)
 }

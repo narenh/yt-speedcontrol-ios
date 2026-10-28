@@ -153,7 +153,9 @@ struct MainView: View {
         VStack(spacing: compact ? 12 : 16) {
             NowPlayingCard(device: device)
             VStack(spacing: compact ? 10 : 12) {
-                SpeedCard(speed: device.speed, select: { model.setSpeed($0) }, compact: compact)
+                SpeedCard(speed: device.speed, playing: device.playing,
+                          togglePlaying: { model.setPlaying(!(device.playing ?? true)) },
+                          select: { model.setSpeed($0) }, compact: compact)
                 CaptionsButton(on: device.captions, toggle: { model.setCaptions(!device.captions) },
                                compact: compact)
             }

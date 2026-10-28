@@ -9,6 +9,9 @@ struct DeviceInfo: Codable, Identifiable, Hashable {
     /// `var`: the app shows a tapped speed or captions change before the server answers.
     var speed: Double
     var captions: Bool
+    /// Playing (or starting) vs paused, stopped or ended, as the TV last said. `nil` until it has
+    /// said, and from older servers.
+    var playing: Bool?
     /// Whether the server skips sponsor segments and ads on this TV. `nil` (absent) when this
     /// person may not use it or the server has it off, or from an older server: no row then.
     var skipSponsors: Bool?
@@ -17,7 +20,7 @@ struct DeviceInfo: Codable, Identifiable, Hashable {
     var channel: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, connected, speed, captions, title, channel
+        case id, name, connected, speed, captions, playing, title, channel
         case videoId = "video_id"
         case skipSponsors = "skip_sponsors"
     }
@@ -113,6 +116,10 @@ enum SpeedAPI {
 
     static func setCaptions(_ on: Bool, device: String) async throws -> DeviceInfo {
         try await request("devices/\(device)/captions/\(on ? "on" : "off")", method: "POST")
+    }
+
+    static func setPlaying(_ play: Bool, device: String) async throws -> DeviceInfo {
+        try await request("devices/\(device)/playback/\(play ? "play" : "pause")", method: "POST")
     }
 
     // MARK: Settings
