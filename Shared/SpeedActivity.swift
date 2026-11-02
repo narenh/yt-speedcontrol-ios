@@ -29,10 +29,10 @@ extension SpeedAttributes.ContentState {
 // MARK: - Intents (compiled into both targets; the system runs them in the app's process)
 //
 // Widget and Live Activity buttons don't run on a locked phone until it's unlocked (Apple's
-// "Adding interactivity to widgets and Live Activities"); `authenticationPolicy` doesn't change
-// that. AudioPlaybackIntent (for actions that start or pause media) is a try at an exception.
+// "Adding interactivity to widgets and Live Activities"). Neither `authenticationPolicy` (already
+// .alwaysAllowed by default) nor adopting AudioPlaybackIntent changes that (tried 2026-11-01).
 
-struct SetSpeedIntent: LiveActivityIntent, AudioPlaybackIntent {
+struct SetSpeedIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Set Playback Speed"
     static let isDiscoverable = false
 
@@ -57,7 +57,7 @@ struct SetSpeedIntent: LiveActivityIntent, AudioPlaybackIntent {
     }
 }
 
-struct SetCaptionsIntent: LiveActivityIntent, AudioPlaybackIntent {
+struct SetCaptionsIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Set Captions"
     static let isDiscoverable = false
 
@@ -78,7 +78,7 @@ struct SetCaptionsIntent: LiveActivityIntent, AudioPlaybackIntent {
     }
 }
 
-struct SetPlayingIntent: LiveActivityIntent, AudioPlaybackIntent {
+struct SetPlayingIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Play or Pause"
     static let isDiscoverable = false
 
