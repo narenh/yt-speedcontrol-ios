@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Account-wide captions, the selected TV's name, sponsor skipping and removal, the Live
-/// Activity, and the Canopy Account.
+/// Activity, the Lock Screen remote experiment, and the Canopy Account.
 struct SettingsView: View {
     let model: TVModel
     @Environment(AppSession.self) private var session
@@ -31,6 +31,7 @@ struct SettingsView: View {
                 captions
                 if let device = model.selected { tvSection(device) }
                 liveActivity
+                lockScreenRemote
                 account
             }
             .navigationTitle("Settings")
@@ -133,6 +134,18 @@ struct SettingsView: View {
             Text("Live Activity")
         } footer: {
             Text("It also appears by itself when a video starts on one of your TVs.")
+        }
+    }
+
+    private var lockScreenRemote: some View {
+        let remote = NowPlayingRemote.shared
+        return Section {
+            Toggle("Lock Screen remote (experiment)", isOn: Binding(get: { remote.isOn }, set: { on in
+                if on { remote.start(model: model) } else { remote.stop() }
+            }))
+            .tint(.green)
+        } footer: {
+            Text("Plays silent audio so the Lock Screen's media controls work the TV. Pauses other audio on this phone.")
         }
     }
 

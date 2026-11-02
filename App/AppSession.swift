@@ -26,6 +26,7 @@ final class AppSession {
         person = nil
         emailCeremony = nil
         ActivityPush.shared.didSignOut()
+        NowPlayingRemote.shared.stop()
         Task { await SpeedActivity.end() }
     }
 
