@@ -32,6 +32,9 @@ targets:
         # The server pushes every speed/captions change from the TV remote.
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSCameraUsageDescription: Canopy Control uses the camera to read the TV's Link with TV code.
+        # The Lock Screen remote experiment (NowPlayingRemote): silence keeps the app playing, and
+        # the Now Playing app, in the background.
+        UIBackgroundModes: [audio]
     dependencies:
       - target: CanopyControlWidget
   CanopyControlWidget:
