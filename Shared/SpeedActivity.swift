@@ -27,13 +27,14 @@ extension SpeedAttributes.ContentState {
 }
 
 // MARK: - Intents (compiled into both targets; the system runs them in the app's process)
+//
+// Widget and Live Activity buttons don't run on a locked phone until it's unlocked (Apple's
+// "Adding interactivity to widgets and Live Activities"); `authenticationPolicy` doesn't change
+// that. AudioPlaybackIntent (for actions that start or pause media) is a try at an exception.
 
-struct SetSpeedIntent: LiveActivityIntent {
+struct SetSpeedIntent: LiveActivityIntent, AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Set Playback Speed"
     static let isDiscoverable = false
-    /// The activity's buttons work on the Lock Screen without unlocking (the token is readable
-    /// after first unlock: see TokenStore).
-    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @Parameter(title: "Speed") var speed: Double
     @Parameter(title: "TV") var deviceId: String
@@ -56,12 +57,9 @@ struct SetSpeedIntent: LiveActivityIntent {
     }
 }
 
-struct SetCaptionsIntent: LiveActivityIntent {
+struct SetCaptionsIntent: LiveActivityIntent, AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Set Captions"
     static let isDiscoverable = false
-    /// The activity's buttons work on the Lock Screen without unlocking (the token is readable
-    /// after first unlock: see TokenStore).
-    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @Parameter(title: "On") var on: Bool
     @Parameter(title: "TV") var deviceId: String
@@ -80,12 +78,9 @@ struct SetCaptionsIntent: LiveActivityIntent {
     }
 }
 
-struct SetPlayingIntent: LiveActivityIntent {
+struct SetPlayingIntent: LiveActivityIntent, AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play or Pause"
     static let isDiscoverable = false
-    /// The activity's buttons work on the Lock Screen without unlocking (the token is readable
-    /// after first unlock: see TokenStore).
-    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @Parameter(title: "Play") var play: Bool
     @Parameter(title: "TV") var deviceId: String
