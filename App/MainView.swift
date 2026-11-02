@@ -14,6 +14,13 @@ struct MainView: View {
     /// Short screens (iPhone SE): tighter controls and spacing.
     @State private var compact = false
     @State private var bottomInset: CGFloat = 0
+    private let remote = NowPlayingRemote.shared
+
+    /// When the refresh loop runs: see `.task(id:)` below.
+    private struct Refresh: Equatable {
+        let active: Bool
+        let remote: Bool
+    }
 
     init() {
         _model = State(initialValue: TVModel())
@@ -66,11 +73,15 @@ struct MainView: View {
                 .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         }
         // On appear, on foreground, and every ~5 s while active: how changes made from the
-        // TV remote show up (and how the running Live Activity catches up).
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
-            ActivityPush.shared.resync()
-            Task { await model.loadSettings() }
+        // TV remote show up (and how the running Live Activity catches up). With the Lock Screen
+        // remote on, in the background too, for its Now Playing card.
+        .task(id: Refresh(active: scenePhase == .active, remote: remote.isOn)) {
+            let active = scenePhase == .active
+            guard active || remote.isOn else { return }
+            if active {
+                ActivityPush.shared.resync()
+                Task { await model.loadSettings() }
+            }
             while !Task.isCancelled {
                 await model.refresh()
                 try? await Task.sleep(for: .seconds(5))
