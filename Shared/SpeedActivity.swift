@@ -31,6 +31,9 @@ extension SpeedAttributes.ContentState {
 struct SetSpeedIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Set Playback Speed"
     static let isDiscoverable = false
+    /// The activity's buttons work on the Lock Screen without unlocking (the token is readable
+    /// after first unlock: see TokenStore).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @Parameter(title: "Speed") var speed: Double
     @Parameter(title: "TV") var deviceId: String
@@ -56,6 +59,9 @@ struct SetSpeedIntent: LiveActivityIntent {
 struct SetCaptionsIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Set Captions"
     static let isDiscoverable = false
+    /// The activity's buttons work on the Lock Screen without unlocking (the token is readable
+    /// after first unlock: see TokenStore).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @Parameter(title: "On") var on: Bool
     @Parameter(title: "TV") var deviceId: String
@@ -77,6 +83,9 @@ struct SetCaptionsIntent: LiveActivityIntent {
 struct SetPlayingIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Play or Pause"
     static let isDiscoverable = false
+    /// The activity's buttons work on the Lock Screen without unlocking (the token is readable
+    /// after first unlock: see TokenStore).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     @Parameter(title: "Play") var play: Bool
     @Parameter(title: "TV") var deviceId: String
