@@ -183,6 +183,25 @@ final class NowPlayingRemote {
             info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        followTV(paused: device?.playing == false)
+    }
+
+    /// On iOS the card's play/pause button follows whether this app's audio plays, not the
+    /// playback rate above (`playbackState` is macOS only), so the silence pauses with the TV.
+    /// Paused, iOS may suspend the app in the background: the card then catches up when a
+    /// card button wakes it, or when the app opens.
+    private func followTV(paused: Bool) {
+        guard let player else { return }
+        if paused, player.isPlaying {
+            player.pause()
+            Self.log.info("TV paused: silence paused")
+        } else if !paused, !player.isPlaying {
+            if player.play() {
+                Self.log.info("TV playing: silence playing")
+            } else {
+                Self.log.error("TV playing, but the silence didn't resume")
+            }
+        }
     }
 
     /// The video's thumbnail, fetched once per video; the card shows it once it's here.
