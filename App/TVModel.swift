@@ -16,6 +16,13 @@ final class TVModel {
     private(set) var activityRunning = SpeedActivity.isRunning
     /// The speed server needs a confirmed Canopy Account email (`403 email_unverified`).
     private(set) var emailUnverified = false
+    /// "Sponsor Block only" TVs (`/skip-tvs`): sponsor skipping, no remote, no Live Activity.
+    private(set) var skipTVs: [SkipTV] = []
+    /// False after `403 skip_not_allowed`: this account can't use the feature, so the app hides it.
+    private(set) var skipAllowed = true
+    /// Bumped on every local change to `skipTVs`, so a load that left before it doesn't undo it.
+    @ObservationIgnored private var skipTVChanges = 0
+    @ObservationIgnored private var skipLoading = false
     /// The last error, from the server's `detail`.
     var message: String?
     /// Speed and captions changes in flight per TV. Taps don't wait for them: only the latest
@@ -88,6 +95,11 @@ final class TVModel {
         #if DEBUG
         if isPreview { return }
         #endif
+        // Its own task: it never slows or fails the TV refresh.
+        if skipAllowed, !skipLoading {
+            skipLoading = true
+            Task { await loadSkipTVs() }
+        }
         let changes = Changes(control: controlChanges, skip: skipChanges)
         do {
             let list = try await SpeedAPI.devices()
@@ -105,6 +117,22 @@ final class TVModel {
             handle(error)
         }
         activityRunning = SpeedActivity.isRunning
+    }
+
+    private func loadSkipTVs() async {
+        defer { skipLoading = false }
+        let changes = skipTVChanges
+        do {
+            let list = try await SpeedAPI.skipTVs()
+            if changes == skipTVChanges, list != skipTVs { skipTVs = list }
+        } catch {
+            if let api = error as? SpeedAPIError, api.isSkipNotAllowed {
+                skipAllowed = false
+                skipTVs = []
+            } else {
+                Self.log.error("GET /skip-tvs failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: Controls
@@ -321,6 +349,71 @@ final class TVModel {
         }
     }
 
+    /// Adds a Sponsor Block only TV with its code. Throws a message fit for the pairing screen.
+    @discardableResult
+    func addSkipTV(code: String) async throws -> SkipTV {
+        #if DEBUG
+        if isPreview {
+            let tv = SkipTV(id: "preview-skip-\(skipTVs.count)", name: "New TV")
+            skipTVs.append(tv)
+            return tv
+        }
+        #endif
+        do {
+            let tv = try await SpeedAPI.addSkipTV(code: code)
+            skipTVChanges += 1
+            skipTVs.removeAll { $0.id == tv.id }
+            skipTVs.append(tv)
+            return tv
+        } catch let api as SpeedAPIError {
+            if api.isEmailUnverified { emailUnverified = true }
+            if api.isAlreadyPaired {
+                throw SpeedAPIError(status: api.status, reason: api.reason,
+                                    message: "That TV is already one of your paired TVs. Use its Skip sponsors toggle instead.")
+            }
+            if api.isTooManyDevices {
+                throw SpeedAPIError(status: api.status, reason: api.reason,
+                                    message: "You've reached the limit of TVs. Remove one to add another.")
+            }
+            throw api
+        }
+    }
+
+    /// Renames a Sponsor Block only TV (`nil`: back to the TV's own name). Throws the server's `detail`.
+    func renameSkipTV(_ id: String, to name: String?) async throws {
+        #if DEBUG
+        if isPreview {
+            if let i = skipTVs.firstIndex(where: { $0.id == id }) { skipTVs[i] = SkipTV(id: id, name: name ?? skipTVs[i].name) }
+            return
+        }
+        #endif
+        let tv = try await SpeedAPI.renameSkipTV(id, name: name)
+        skipTVChanges += 1
+        if let i = skipTVs.firstIndex(where: { $0.id == id }) { skipTVs[i] = tv }
+    }
+
+    /// Removes a Sponsor Block only TV: gone from the list right away, back in its place with the
+    /// server's `detail` if the server says no.
+    func removeSkipTV(_ id: String) {
+        guard let i = skipTVs.firstIndex(where: { $0.id == id }) else { return }
+        let removed = skipTVs.remove(at: i)
+        skipTVChanges += 1
+        #if DEBUG
+        if isPreview { return }
+        #endif
+        Task {
+            do {
+                try await SpeedAPI.removeSkipTV(id)
+                skipTVChanges += 1
+                message = nil
+            } catch {
+                skipTVChanges += 1
+                if !skipTVs.contains(where: { $0.id == id }) { skipTVs.insert(removed, at: min(i, skipTVs.count)) }
+                handle(error)
+            }
+        }
+    }
+
     func removeSelected() async {
         guard let id = selected?.id else { return }
         do {
@@ -382,9 +475,12 @@ final class TVModel {
     /// Sample TVs for previews and the `-MainViewPreview` launch argument. Never calls the
     /// server: controls, renames and removes change the samples only.
     static func preview(_ devices: [DeviceInfo] = DeviceInfo.samples, selecting id: String? = nil,
-                        autoCaptions: Bool = true, loaded: Bool = true) -> TVModel {
+                        autoCaptions: Bool = true, loaded: Bool = true,
+                        skipTVs: [SkipTV] = SkipTV.samples, skipAllowed: Bool = true) -> TVModel {
         let model = TVModel()
         model.isPreview = true
+        model.skipTVs = skipTVs
+        model.skipAllowed = skipAllowed
         model.devices = devices
         model.loaded = loaded
         model.autoCaptions = autoCaptions
@@ -397,6 +493,8 @@ final class TVModel {
 
     func reset() {
         devices = []
+        skipTVs = []
+        skipAllowed = true
         loaded = false
         emailUnverified = false
         message = nil
@@ -404,6 +502,13 @@ final class TVModel {
 }
 
 #if DEBUG
+extension SkipTV {
+    static let samples: [SkipTV] = [
+        SkipTV(id: "preview-skip-1", name: "Mom's TV"),
+        SkipTV(id: "preview-skip-2", name: "Cabin Living Room"),
+    ]
+}
+
 extension DeviceInfo {
     static let samples: [DeviceInfo] = [
         DeviceInfo(id: "preview-1", name: "Living Room TV", connected: true, videoId: "dQw4w9WgXcQ",

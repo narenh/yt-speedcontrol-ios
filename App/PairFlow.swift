@@ -1,14 +1,29 @@
 import SwiftUI
 import VisionKit
 
+/// What pairing a TV with a code does.
+enum PairMode {
+    /// A TV Canopy Control controls and shows in Live Activities (`POST /pair`).
+    case paired
+    /// Sponsor skipping only (`POST /skip-tvs`): no remote, no Live Activity.
+    case sponsorBlockOnly
+}
+
+/// The TV just paired, in either mode: what the name step needs.
+private struct PairedTV {
+    let id: String
+    let name: String
+}
+
 /// Pair a TV with the code YouTube shows under Settings → Link with TV code. Opens full screen on
 /// the camera and pairs as soon as it reads a code; typing it is the fallback. Once paired, it
 /// asks for a name, with the TV's own as the placeholder.
 struct PairSheet: View {
     let model: TVModel
+    let mode: PairMode
     @Environment(\.dismiss) private var dismiss
     /// The TV just paired: the sheet is on its name step.
-    @State private var paired: DeviceInfo?
+    @State private var paired: PairedTV?
     @State private var manual = !PairSheet.canScan
     @State private var code = ""
     @State private var isWorking = false
@@ -21,22 +36,29 @@ struct PairSheet: View {
 
     private static var canScan: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
 
-    init(model: TVModel) {
+    init(model: TVModel, mode: PairMode = .paired) {
         self.model = model
+        self.mode = mode
+    }
+
+    private var title: LocalizedStringKey { mode == .paired ? "Pair a TV" : "Sponsor Block Only" }
+    private var skipNote: String {
+        "Canopy Control won't control this TV or show it in Live Activities. It only skips sponsors and ads."
     }
 
     #if DEBUG
     /// For previews: the sheet already on the name step for `paired`.
     init(model: TVModel, paired: DeviceInfo) {
         self.model = model
-        _paired = State(initialValue: paired)
+        self.mode = .paired
+        _paired = State(initialValue: PairedTV(id: paired.id, name: paired.name))
     }
     #endif
 
     var body: some View {
         NavigationStack {
             if let paired {
-                NameStep(model: model, device: paired) { dismiss() }
+                NameStep(model: model, mode: mode, device: paired) { dismiss() }
             } else if manual {
                 manualForm
             } else {
@@ -60,6 +82,12 @@ struct PairSheet: View {
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
+                if mode == .sponsorBlockOnly {
+                    Text(skipNote)
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                }
                 status
             }
             .padding(.horizontal, 32)
@@ -79,7 +107,7 @@ struct PairSheet: View {
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pairBackground.ignoresSafeArea())
-        .navigationTitle("Pair a TV")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
@@ -159,13 +187,15 @@ struct PairSheet: View {
                     }
                 }
             } footer: {
-                Text("On the TV: YouTube › Settings › Link with TV code")
+                Text(mode == .sponsorBlockOnly
+                     ? "On the TV: YouTube › Settings › Link with TV code\n\(skipNote)"
+                     : "On the TV: YouTube › Settings › Link with TV code")
             }
             if let errorMessage {
                 Section { Text(errorMessage).foregroundStyle(.orange) }
             }
         }
-        .navigationTitle("Pair a TV")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -189,7 +219,15 @@ struct PairSheet: View {
         defer { isWorking = false }
         do {
             // Spaces in the code are fine for the server.
-            paired = try await model.pair(code: code.trimmingCharacters(in: .whitespacesAndNewlines))
+            let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch mode {
+            case .paired:
+                let device = try await model.pair(code: code)
+                paired = PairedTV(id: device.id, name: device.name)
+            case .sponsorBlockOnly:
+                let tv = try await model.addSkipTV(code: code)
+                paired = PairedTV(id: tv.id, name: tv.name)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -200,7 +238,8 @@ struct PairSheet: View {
 /// the placeholder. The TV is already in the list and selected behind the sheet.
 private struct NameStep: View {
     let model: TVModel
-    let device: DeviceInfo
+    let mode: PairMode
+    let device: PairedTV
     let done: () -> Void
     @State private var name = ""
     @State private var isSaving = false
@@ -259,7 +298,10 @@ private struct NameStep: View {
         Task {
             defer { isSaving = false }
             do {
-                try await model.rename(device: device.id, to: newName)
+                switch mode {
+                case .paired: try await model.rename(device: device.id, to: newName)
+                case .sponsorBlockOnly: try await model.renameSkipTV(device.id, to: newName)
+                }
                 done()
             } catch {
                 errorMessage = error.localizedDescription
@@ -272,6 +314,10 @@ private struct NameStep: View {
 #if DEBUG
 #Preview("Scanner") {
     PairSheet(model: .preview())
+}
+
+#Preview("Scanner, Sponsor Block only") {
+    PairSheet(model: .preview(), mode: .sponsorBlockOnly)
 }
 
 #Preview("Name this TV") {

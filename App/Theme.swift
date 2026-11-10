@@ -7,6 +7,8 @@ extension Color {
     static let canopyAccent = Color(hex: 0xD92D20)
     /// Text buttons, links and destructive rows: #C42B1C, lighter in dark mode.
     static let canopyLink = Color(light: 0xC42B1C, dark: 0xFF6B5E)
+    /// Sponsor Block only: the blue add button and its rows' icons.
+    static let canopyBlue = Color(light: 0x0A60C9, dark: 0x4DA3FF)
     /// The status dot when YouTube is open on the TV.
     static let statusGreen = Color(light: 0x248A3D, dark: 0x30D158)
     /// The Captions button when captions are on: near-black in light mode, near-white in dark,

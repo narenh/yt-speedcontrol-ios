@@ -9,8 +9,9 @@ struct MainView: View {
     @State private var switching = false
     @State private var settings = false
     @State private var pairing = false
+    @State private var pairMode: PairMode = .paired
     /// Pair a TV was tapped in the switcher: open pairing once the sheet is gone.
-    @State private var pairAfterSwitcher = false
+    @State private var pairAfterSwitcher: PairMode?
     /// Short screens (iPhone SE): tighter controls and spacing.
     @State private var compact = false
     @State private var bottomInset: CGFloat = 0
@@ -77,13 +78,14 @@ struct MainView: View {
             }
         }
         .sheet(isPresented: $switching, onDismiss: {
-            if pairAfterSwitcher {
-                pairAfterSwitcher = false
+            if let mode = pairAfterSwitcher {
+                pairAfterSwitcher = nil
+                pairMode = mode
                 pairing = true
             }
         }) {
-            TVSwitcherSheet(model: model) {
-                pairAfterSwitcher = true
+            TVSwitcherSheet(model: model) { mode in
+                pairAfterSwitcher = mode
                 switching = false
             }
         }
@@ -184,7 +186,10 @@ struct MainView: View {
         } description: {
             Text("Pair a TV with the code YouTube shows on it.")
         } actions: {
-            Button("Pair a TV") { pairing = true }
+            Button("Pair a TV") {
+                pairMode = .paired
+                pairing = true
+            }
                 .buttonStyle(.glassProminent)
                 .tint(.canopyAccent)
         }
@@ -214,10 +219,10 @@ struct MainView: View {
         if Self.previewArg("-PreviewNameStep") {
             PairSheet(model: model, paired: DeviceInfo.samples[1])
         } else {
-            PairSheet(model: model)
+            PairSheet(model: model, mode: pairMode)
         }
         #else
-        PairSheet(model: model)
+        PairSheet(model: model, mode: pairMode)
         #endif
     }
 

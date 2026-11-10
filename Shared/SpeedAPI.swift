@@ -26,6 +26,13 @@ struct DeviceInfo: Codable, Identifiable, Hashable {
     }
 }
 
+/// A "Sponsor Block only" TV (`/skip-tvs`): enrolled in sponsor skipping, with no remote control
+/// and no Live Activity.
+struct SkipTV: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
 /// The signed-in person's settings on the speed server (`GET` and `PATCH /me/settings`).
 struct AccountSettings: Codable, Equatable {
     /// The server turns captions on when speeding up past 1×, and off back at 1×.
@@ -62,6 +69,12 @@ struct SpeedAPIError: LocalizedError {
     /// The person's Canopy Account email isn't confirmed, and this server needs it to be.
     var isEmailUnverified: Bool { status == 403 && reason == "email_unverified" }
 
+    /// This account can't use Sponsor Block only TVs (`GET /skip-tvs`).
+    var isSkipNotAllowed: Bool { status == 403 && reason == "skip_not_allowed" }
+    /// `POST /skip-tvs`: that TV is already one of the person's paired TVs.
+    var isAlreadyPaired: Bool { status == 409 && reason == "already_paired" }
+    var isTooManyDevices: Bool { status == 409 && reason == "too_many_devices" }
+
     static let noToken = SpeedAPIError(status: 401, reason: "signed_out", message: "Sign in to Canopy Control.")
 }
 
@@ -97,6 +110,26 @@ enum SpeedAPI {
     /// name the TV reports itself.
     static func rename(device: String, name: String?) async throws -> DeviceInfo {
         try await patch(device: device, ["name": name.map { $0 as Any } ?? NSNull()])
+    }
+
+    // MARK: Sponsor Block only TVs
+
+    static func skipTVs() async throws -> [SkipTV] {
+        try await request("skip-tvs", method: "GET")
+    }
+
+    static func addSkipTV(code: String) async throws -> SkipTV {
+        try await request("skip-tvs", method: "POST", body: ["code": code])
+    }
+
+    /// `PATCH /skip-tvs/{id}`: a new name, or `nil` for the name the TV reports itself.
+    static func renameSkipTV(_ id: String, name: String?) async throws -> SkipTV {
+        let body = try JSONSerialization.data(withJSONObject: ["name": name.map { $0 as Any } ?? NSNull()])
+        return try JSONDecoder().decode(SkipTV.self, from: try await send("skip-tvs/\(id)", method: "PATCH", body: body))
+    }
+
+    static func removeSkipTV(_ id: String) async throws {
+        _ = try await send("skip-tvs/\(id)", method: "DELETE", body: nil)
     }
 
     /// `PATCH /devices/{id}` with `skip_sponsors`. A `403 skip_not_allowed` says why in `detail`.
