@@ -180,6 +180,11 @@ struct MainView: View {
         .transition(.opacity)
     }
 
+    // TODO(sponsor-block-only): the TV switcher only opens from a selected paired TV, so an account
+    // with Sponsor Block-only TVs and no paired TV lands here and can't reach the Sponsor Block tab
+    // (or add/remove those TVs). Known gap, deliberately left: the owner is the only user and has
+    // paired TVs. Fix when a second account (e.g. one just for a parent's TV) exists: show a way into
+    // the switcher / Sponsor Block list from this screen when `model.skipAllowed`.
     private var noTVs: some View {
         ContentUnavailableView {
             Label("No TVs yet", systemImage: "tv")
