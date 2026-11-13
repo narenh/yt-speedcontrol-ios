@@ -30,9 +30,25 @@ struct DeviceInfo: Codable, Identifiable, Hashable {
 struct AccountSettings: Codable, Equatable {
     /// The server turns captions on when speeding up past 1×, and off back at 1×.
     var autoCaptions: Bool
+    /// The server turns captions on for every new video, whatever the speed. Exclusive with
+    /// `autoCaptions` (the server turns one off when the other goes on). False from servers
+    /// older than the setting.
+    var captionsAlways: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case autoCaptions = "auto_captions"
+        case captionsAlways = "captions_always"
+    }
+
+    init(autoCaptions: Bool, captionsAlways: Bool = false) {
+        self.autoCaptions = autoCaptions
+        self.captionsAlways = captionsAlways
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        autoCaptions = try c.decode(Bool.self, forKey: .autoCaptions)
+        captionsAlways = try c.decodeIfPresent(Bool.self, forKey: .captionsAlways) ?? false
     }
 
     /// The last `auto_captions` the app heard, for taps on the Live Activity (they run in the
@@ -42,10 +58,17 @@ struct AccountSettings: Codable, Equatable {
         set { UserDefaults.standard.set(newValue, forKey: "autoCaptions") }
     }
 
+    /// The last `captions_always` the app heard, saved like `saved`. False until the server says otherwise.
+    static var savedCaptionsAlways: Bool {
+        get { UserDefaults.standard.object(forKey: "captionsAlways") as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: "captionsAlways") }
+    }
+
     /// Captions after a speed change, as the server sets them: with auto captions on, on above 1×
-    /// and off at 1×; with it off, as they were.
-    static func captions(afterSpeed speed: Double, autoCaptions: Bool, current: Bool) -> Bool {
-        autoCaptions ? speed > 1 : current
+    /// and off at 1×; with it off, or with captions always on, as they were.
+    static func captions(afterSpeed speed: Double, autoCaptions: Bool, captionsAlways: Bool,
+                         current: Bool) -> Bool {
+        autoCaptions && !captionsAlways ? speed > 1 : current
     }
 }
 
@@ -128,9 +151,18 @@ enum SpeedAPI {
         try await request("me/settings", method: "GET")
     }
 
-    /// `PATCH /me/settings`: answers with all the settings.
+    /// `PATCH /me/settings` with only the one setting: answers with all of them.
     static func setAutoCaptions(_ on: Bool) async throws -> AccountSettings {
-        let body = try JSONEncoder().encode(AccountSettings(autoCaptions: on))
+        try await patchSettings([AccountSettings.CodingKeys.autoCaptions.rawValue: on])
+    }
+
+    /// `PATCH /me/settings {"captions_always": on}`; turning it on turns auto captions off.
+    static func setCaptionsAlways(_ on: Bool) async throws -> AccountSettings {
+        try await patchSettings([AccountSettings.CodingKeys.captionsAlways.rawValue: on])
+    }
+
+    private static func patchSettings(_ change: [String: Bool]) async throws -> AccountSettings {
+        let body = try JSONEncoder().encode(change)
         return try JSONDecoder().decode(AccountSettings.self, from: try await send("me/settings", method: "PATCH", body: body))
     }
 
