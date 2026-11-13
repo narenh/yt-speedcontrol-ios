@@ -39,8 +39,19 @@ final class TVModel {
             AccountSettings.saved = autoCaptions
         }
     }
+    /// `captions_always` from `/me/settings`: captions on for every new video. False until the
+    /// server says otherwise (and from servers without it). Saved for the Live Activity too.
+    private(set) var captionsAlways = AccountSettings.savedCaptionsAlways {
+        didSet {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            AccountSettings.savedCaptionsAlways = captionsAlways
+        }
+    }
+    /// A captions setting change in flight (either switch: one turns the other off).
     private(set) var autoCaptionsPending = false
-    /// Why the last change to auto captions didn't stick.
+    /// Why the last change to a captions setting didn't stick.
     private(set) var autoCaptionsError: String?
 
     #if DEBUG
@@ -114,10 +125,11 @@ final class TVModel {
     /// server's `detail`.
     func setSpeed(_ speed: Double) {
         guard let device = selected, device.speed != speed else { return }
-        let autoCaptions = autoCaptions
+        let autoCaptions = autoCaptions, captionsAlways = captionsAlways
         control(device.id, change: {
             $0.speed = speed
-            $0.captions = AccountSettings.captions(afterSpeed: speed, autoCaptions: autoCaptions, current: $0.captions)
+            $0.captions = AccountSettings.captions(afterSpeed: speed, autoCaptions: autoCaptions,
+                                                   captionsAlways: captionsAlways, current: $0.captions)
         }) { try await SpeedAPI.setSpeed(speed, device: device.id) }
     }
 
@@ -269,18 +281,39 @@ final class TVModel {
         guard !autoCaptionsPending else { return }
         do {
             let settings = try await SpeedAPI.settings()
-            if !autoCaptionsPending { autoCaptions = settings.autoCaptions }
+            if !autoCaptionsPending { apply(settings) }
         } catch {
             if let api = error as? SpeedAPIError, api.isEmailUnverified { emailUnverified = true }
             Self.log.error("GET /me/settings failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    /// The switch flips right away; an error puts it back and says why under it.
+    private func apply(_ settings: AccountSettings) {
+        autoCaptions = settings.autoCaptions
+        captionsAlways = settings.captionsAlways
+    }
+
+    /// The switch flips right away (turning it on turns captions always off, as the server
+    /// will); the server's answer then replaces both. An error puts them back and says why.
     func setAutoCaptions(_ on: Bool) {
-        guard on != autoCaptions, !autoCaptionsPending else { return }
-        let before = autoCaptions
-        autoCaptions = on
+        guard on != autoCaptions else { return }
+        changeCaptionSettings(AccountSettings(autoCaptions: on, captionsAlways: on ? false : captionsAlways)) {
+            try await SpeedAPI.setAutoCaptions(on)
+        }
+    }
+
+    /// Like `setAutoCaptions`: turning it on turns auto captions off.
+    func setCaptionsAlways(_ on: Bool) {
+        guard on != captionsAlways else { return }
+        changeCaptionSettings(AccountSettings(autoCaptions: on ? false : autoCaptions, captionsAlways: on)) {
+            try await SpeedAPI.setCaptionsAlways(on)
+        }
+    }
+
+    private func changeCaptionSettings(_ shown: AccountSettings, send: @escaping () async throws -> AccountSettings) {
+        guard !autoCaptionsPending else { return }
+        let before = AccountSettings(autoCaptions: autoCaptions, captionsAlways: captionsAlways)
+        apply(shown)
         autoCaptionsError = nil
         #if DEBUG
         if isPreview { return }
@@ -289,9 +322,9 @@ final class TVModel {
         Task {
             defer { autoCaptionsPending = false }
             do {
-                autoCaptions = try await SpeedAPI.setAutoCaptions(on).autoCaptions
+                apply(try await send())
             } catch {
-                autoCaptions = before
+                apply(before)
                 Self.log.error("PATCH /me/settings failed: \(error.localizedDescription, privacy: .public)")
                 if let api = error as? SpeedAPIError {
                     if api.isSignedOut { return }

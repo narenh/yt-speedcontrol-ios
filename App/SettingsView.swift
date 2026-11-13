@@ -65,13 +65,20 @@ struct SettingsView: View {
             Toggle("Auto captions above 1×", isOn: Binding(get: { model.autoCaptions }, set: { model.setAutoCaptions($0) }))
                 .tint(.green)
                 .disabled(model.autoCaptionsPending)
+            Toggle("Captions always on", isOn: Binding(get: { model.captionsAlways }, set: { model.setCaptionsAlways($0) }))
+                .tint(.green)
+                .disabled(model.autoCaptionsPending)
         } header: {
             Text("Captions")
         } footer: {
             if let error = model.autoCaptionsError {
                 Text(error).foregroundStyle(.orange)
             } else {
-                Text("Speeding up turns captions on; back at 1× turns them off. The Captions button always works either way.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Auto captions: speeding up turns captions on; back at 1× turns them off.")
+                    Text("Always on: every new video starts with captions on, at any speed.")
+                    Text("The Captions button works either way.")
+                }
             }
         }
     }

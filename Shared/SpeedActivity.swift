@@ -47,9 +47,11 @@ struct SetSpeedIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         let autoCaptions = AccountSettings.saved
+        let captionsAlways = AccountSettings.savedCaptionsAlways
         await SpeedActivity.apply(deviceId: deviceId, change: {
             $0.speed = speed
-            $0.captions = AccountSettings.captions(afterSpeed: speed, autoCaptions: autoCaptions, current: $0.captions)
+            $0.captions = AccountSettings.captions(afterSpeed: speed, autoCaptions: autoCaptions,
+                                                   captionsAlways: captionsAlways, current: $0.captions)
         }) {
             try await SpeedAPI.setSpeed(speed, device: deviceId)
         }
