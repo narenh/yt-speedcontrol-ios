@@ -2,7 +2,9 @@ import SwiftUI
 import VisionKit
 
 /// What pairing a TV with a code does.
-enum PairMode {
+enum PairMode: Identifiable {
+    var id: Self { self }
+
     /// A TV Canopy Control controls and shows in Live Activities (`POST /pair`).
     case paired
     /// Sponsor skipping only (`POST /skip-tvs`): no remote, no Live Activity.

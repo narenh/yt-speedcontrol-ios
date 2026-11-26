@@ -8,8 +8,10 @@ struct MainView: View {
     @State private var model: TVModel
     @State private var switching = false
     @State private var settings = false
-    @State private var pairing = false
-    @State private var pairMode: PairMode = .paired
+    /// The pairing screen is open, in this mode. One optional rather than a flag plus a mode: with
+    /// `isPresented:` the screen was built with a stale mode (pairing a Sponsor Block only TV did a
+    /// full `POST /pair`, then the name step renamed it under `/skip-tvs` and got 404).
+    @State private var pairing: PairMode?
     /// Pair a TV was tapped in the switcher: open pairing once the sheet is gone.
     @State private var pairAfterSwitcher: PairMode?
     /// Short screens (iPhone SE): tighter controls and spacing.
@@ -80,8 +82,7 @@ struct MainView: View {
         .sheet(isPresented: $switching, onDismiss: {
             if let mode = pairAfterSwitcher {
                 pairAfterSwitcher = nil
-                pairMode = mode
-                pairing = true
+                pairing = mode
             }
         }) {
             TVSwitcherSheet(model: model) { mode in
@@ -90,14 +91,14 @@ struct MainView: View {
             }
         }
         .sheet(isPresented: $settings) { settingsSheet }
-        .fullScreenCover(isPresented: $pairing) { pairSheet }
+        .fullScreenCover(item: $pairing) { pairSheet($0) }
         .alert("Welcome", isPresented: Binding(get: { session.notice != nil }, set: { if !$0 { session.notice = nil } })) {
             Button("OK") { session.notice = nil }
         } message: { Text(session.notice ?? "") }
         .task { await session.loadPerson() }
         #if DEBUG
         .onAppear {
-            if Self.previewArg("-PreviewNameStep") { pairing = true }
+            if Self.previewArg("-PreviewNameStep") { pairing = .paired }
             if Self.previewArg("-PreviewSwitcher") { switching = true }
             if Self.previewArg("-PreviewSettings") || Self.previewArg("-PreviewRename") || Self.previewArg("-PreviewSkipOff") {
                 settings = true
@@ -192,8 +193,7 @@ struct MainView: View {
             Text("Pair a TV with the code YouTube shows on it.")
         } actions: {
             Button("Pair a TV") {
-                pairMode = .paired
-                pairing = true
+                pairing = .paired
             }
                 .buttonStyle(.glassProminent)
                 .tint(.canopyAccent)
@@ -219,15 +219,15 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private var pairSheet: some View {
+    private func pairSheet(_ mode: PairMode) -> some View {
         #if DEBUG
         if Self.previewArg("-PreviewNameStep") {
             PairSheet(model: model, paired: DeviceInfo.samples[1])
         } else {
-            PairSheet(model: model, mode: pairMode)
+            PairSheet(model: model, mode: mode)
         }
         #else
-        PairSheet(model: model, mode: pairMode)
+        PairSheet(model: model, mode: mode)
         #endif
     }
 
